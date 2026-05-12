@@ -1,0 +1,8 @@
+services:
+  bank-app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./bank.db:/app/bank.db  # Dzięki temu baza SQLite nie zniknie po wyłączeniu kontenera
+    restart: always
