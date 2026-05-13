@@ -3,6 +3,29 @@ services:
     build: .
     ports:
       - "8000:8000"
-    volumes:
-      - ./bank.db:/app/bank.db  # Dzięki temu baza SQLite nie zniknie po wyłączeniu kontenera
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://bank_user:bank_pass@postgres:5432/bank_db
     restart: always
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: bank_user
+      POSTGRES_PASSWORD: bank_pass
+      POSTGRES_DB: bank_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bank_user -d bank_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+volumes:
+  postgres_data:

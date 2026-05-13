@@ -3,10 +3,10 @@ from decimal import Decimal
 from domain.value_objects import AccountNumber, Money, Currency
 from domain.entities import Account
 from application.internal_transfer import InternalTransferUseCase
-from infrastructure.sqlite_repository import SQLiteAccountRepository
+from infrastructure.postgresql_repository import PostgreSQLAccountRepository
 
 
-def setup_mock_data(repo: SQLiteAccountRepository):
+def setup_mock_data(repo: PostgreSQLAccountRepository):
     """Pomocnicza funkcja do stworzenia dwóch kont początkowych w bazie."""
     account_1 = Account(
         id=AccountNumber(sort_code="102030", account_number="11111111"),
@@ -23,7 +23,7 @@ def setup_mock_data(repo: SQLiteAccountRepository):
 
 if __name__ == "__main__":
     # 1. Inicjalizacja bazy danych
-    repository = SQLiteAccountRepository()
+    repository = PostgreSQLAccountRepository()
 
     # Tworzymy konta do testów
     setup_mock_data(repository)
