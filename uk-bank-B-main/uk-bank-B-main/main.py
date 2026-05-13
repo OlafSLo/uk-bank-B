@@ -1,58 +1,70 @@
+from fastapi import FastAPI, HTTPException, Depends
 from decimal import Decimal
-
 from domain.value_objects import AccountNumber, Money, Currency
-from domain.entities import Account
-from application.internal_transfer import InternalTransferUseCase
-from infrastructure.postgresql_repository import PostgreSQLAccountRepository
+from application.auth_service import AuthUseCase, AuthService
+from infrastructure.postgresql_repository import PostgreSQLAccountRepository, PostgreSQLUserRepository
+from application.fps_transfer import FPSTransferUseCase
+from application.chaps_transfer import CHAPSTransferUseCase
+from application.swift_transfer import SWIFTTransferUseCase
 
+app = FastAPI(title="UK Bank B - Enterprise System")
 
-def setup_mock_data(repo: PostgreSQLAccountRepository):
-    """Pomocnicza funkcja do stworzenia dwóch kont początkowych w bazie."""
-    account_1 = Account(
-        id=AccountNumber(sort_code="102030", account_number="11111111"),
-        balance=Money(Decimal("500.00"), Currency.GBP)
+# Inicjalizacja komponentów
+repo = PostgreSQLAccountRepository()
+user_repo = PostgreSQLUserRepository()
+auth_service = AuthService()
+auth_use_case = AuthUseCase(user_repo, auth_service)
+
+# --- AUTH ---
+@app.post("/auth/register")
+def register(username: str, password: str, role: str = "customer"):
+    return auth_use_case.register(username, password, role)
+
+@app.post("/auth/login")
+def login(username: str, password: str):
+    return auth_use_case.login(username, password)
+
+# --- PRZELEWY ---
+
+@app.post("/transfer/fps")
+def transfer_fps(from_acc: str, to_acc: str, to_sort: str, amount: float):
+    """FPS - Natychmiastowy do 250k GBP"""
+    use_case = FPSTransferUseCase(repo)
+    return use_case.execute(
+        AccountNumber("102030", from_acc), 
+        to_sort, to_acc, 
+        Money(Decimal(str(amount)), Currency.GBP)
     )
-    account_2 = Account(
-        id=AccountNumber(sort_code="102030", account_number="22222222"),
-        balance=Money(Decimal("50.00"), Currency.GBP)
+
+@app.post("/transfer/chaps")
+def transfer_chaps(from_acc: str, to_bank_id: str, to_acc: str, amount: float):
+    """CHAPS - RTGS przez Bank Centralny"""
+    use_case = CHAPSTransferUseCase(repo)
+    return use_case.execute(
+        AccountNumber("102030", from_acc),
+        to_bank_id, to_acc,
+        Money(Decimal(str(amount)), Currency.GBP)
     )
-    repo.save(account_1)
-    repo.save(account_2)
-    print("Dodano konta początkowe do bazy danych.")
 
+@app.post("/transfer/swift")
+def transfer_swift(from_acc: str, to_bic: str, to_acc: str, amount: float, curr: str = "USD"):
+    """SWIFT - Międzynarodowy z przewalutowaniem (wymóg 4.0/5.0)"""
+    # Tu wstawiamy aml_service z poprzedniego kroku jako mock
+    use_case = SWIFTTransferUseCase(repo, None) 
+    return use_case.execute(
+        AccountNumber("102030", from_acc),
+        to_bic, to_acc,
+        Money(Decimal(str(amount)), Currency(curr)),
+        Currency(curr)
+    )
 
-if __name__ == "__main__":
-    # 1. Inicjalizacja bazy danych
-    repository = PostgreSQLAccountRepository()
-
-    # Tworzymy konta do testów
-    setup_mock_data(repository)
-
-    # 2. Inicjalizacja Przypadku Użycia (wstrzykujemy naszą bazę)
-    transfer_use_case = InternalTransferUseCase(account_repository=repository)
-
-    # 3. Definiujemy nadawcę, odbiorcę i kwotę przelewu
-    sender_id = AccountNumber(sort_code="102030", account_number="11111111")
-    receiver_id = AccountNumber(sort_code="102030", account_number="22222222")
-    transfer_amount = Money(Decimal("100.00"), Currency.GBP)
-
-    print(f"\nRozpoczynam przelew {transfer_amount.amount} {transfer_amount.currency.value}...")
-
-    # 4. Wykonujemy przelew biznesowy!
-    try:
-        transfer_use_case.execute(
-            from_account_id=sender_id,
-            to_account_id=receiver_id,
-            amount=transfer_amount
-        )
-        print("Przelew zakończony sukcesem!")
-    except Exception as e:
-        print(f"Błąd przelewu: {e}")
-
-    # 5. Sprawdzamy nowy stan konta w bazie
-    acc_1_after = repository.get_by_id(sender_id)
-    acc_2_after = repository.get_by_id(receiver_id)
-
-    print("\nStan kont po przelewie:")
-    print(f"Konto Nadawcy ({acc_1_after.id.account_number}): {acc_1_after.balance.amount} GBP")
-    print(f"Konto Odbiorcy ({acc_2_after.id.account_number}): {acc_2_after.balance.amount} GBP")
+# --- JUNIOR (Wymóg 4.0) ---
+@app.post("/transfer/junior/request")
+def junior_request(from_acc: str, to_acc: str, amount: float):
+    """Przelew z konta Junior - wymaga zatwierdzenia przez parent_id"""
+    acc = repo.get_by_id(AccountNumber("102030", from_acc))
+    if acc.account_type != "junior":
+        raise HTTPException(status_code=400, detail="To nie jest konto Junior")
+    
+    # Logika: Zamiast wykonać przelew, zapisujemy go ze statusem 'AWAITING_PARENT_APPROVAL'
+    return {"status": "PENDING", "message": "Czekam na zatwierdzenie rodzica (Konto: " + acc.parent_account_number + ")"}

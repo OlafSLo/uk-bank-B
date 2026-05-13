@@ -8,7 +8,24 @@ from domain.entities import Account
 from domain.value_objects import AccountNumber, Money, Currency
 from domain.repositories import AccountRepository
 
-
+class PostgreSQLTransactionRepository:
+    def search(self, sender_name=None, start_date=None, end_date=None):
+        query = "SELECT * FROM transactions WHERE 1=1"
+        params = []
+        
+        if sender_name:
+            query += " AND sender_name ILIKE %s"
+            params.append(f"%{sender_name}%")
+        if start_date:
+            query += " AND created_at >= %s"
+            params.append(start_date)
+        if end_date:
+            query += " AND created_at <= %s"
+            params.append(end_date)
+            
+        
+        return self.db.execute(query, params)
+    
 class PostgreSQLAccountRepository(AccountRepository):
     def __init__(self, db_url: str = None):
         if db_url is None:
