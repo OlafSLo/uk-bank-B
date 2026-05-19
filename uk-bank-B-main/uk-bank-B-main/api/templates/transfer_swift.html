@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Bank B - SWIFT Transfer</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/dashboard" class="navbar-brand">
+            <div class="logo-icon">UK</div>
+            <span>UK Bank B</span>
+        </a>
+        <div class="navbar-nav">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/transfer/internal" class="active">Przelewy</a>
+        </div>
+        <div class="navbar-user">
+            <div class="user-avatar">{{ user.username[0]|upper }}</div>
+            <span>{{ user.username }}</span>
+            <a href="/logout" class="btn-logout">Wyloguj</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="transfer-hero">
+            <div class="hero-icon">🌍</div>
+            <h2>SWIFT Transfer</h2>
+            <p>Międzynarodowy transfer z przewalutowaniem - opłata 1%</p>
+            <div class="hero-limits">
+                <span>✓ Limit: £5,000,000</span>
+                <span>🌍 Międzynarodowy</span>
+                <span>💱 GBP / EUR / USD</span>
+                <span>💰 Opłata: 1%</span>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-header"><h3>📝 Formularz SWIFT</h3></div>
+                <div class="card-body">
+                    <form id="transferForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Sort Code nadawcy</label>
+                                <input type="text" class="form-control" id="from_sort" value="102030" placeholder="6 cyfr">
+                            </div>
+                            <div class="form-group">
+                                <label>Konto nadawcy</label>
+                                <input type="text" class="form-control" id="from_acc" value="11111111" placeholder="8 cyfr">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>BIC / Sort Code odbiorcy</label>
+                                <input type="text" class="form-control" id="to_sort" value="BOFAUS3N" placeholder="BIC lub sort code">
+                            </div>
+                            <div class="form-group">
+                                <label>Konto odbiorcy</label>
+                                <input type="text" class="form-control" id="to_acc" value="123456789" placeholder="Nr konta">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Kwota (£)</label>
+                            <input type="number" class="form-control" id="amount" value="1000.00" step="0.01" min="0.01" max="5000000" placeholder="0.00">
+                        </div>
+                        <div class="form-group">
+                            <label>Waluta docelowa</label>
+                            <select class="form-control" id="to_currency">
+                                <option value="USD">USD (US Dollar)</option>
+                                <option value="EUR">EUR (Euro)</option>
+                                <option value="GBP">GBP (British Pound)</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-success btn-lg btn-block" id="submitBtn">
+                            Wyślij SWIFT
+                        </button>
+                    </form>
+
+                    <div class="result-container" id="resultContainer">
+                        <div class="result-title" id="resultTitle">✅ Rezultat</div>
+                        <pre id="resultContent"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><h3>ℹ️ Informacje</h3></div>
+                <div class="card-body">
+                    <table class="info-table">
+                        <tr><th>Typ przelewu</th><td>SWIFT (Society for Worldwide Interbank Financial Telecommunication)</td></tr>
+                        <tr><th>Kraje</th><td>Międzynarodowy</td></tr>
+                        <tr><th>Czas realizacji</th><td>1-3 dni robocze</td></tr>
+                        <tr><th>Limit kwoty</th><td>£5,000,000</td></tr>
+                        <tr><th>Opłaty</th><td>1% kwoty</td></tr>
+                        <tr><th>Waluty</th><td>GBP, EUR, USD (z przewalutowaniem)</td></tr>
+                    </table>
+
+                    <div class="alert alert-info" style="margin-top:1rem;">
+                        <strong>Kursy walut (symulacja):</strong>
+                        <table style="width:100%; margin-top:8px; font-size:0.85rem;">
+                            <tr><td>GBP → EUR</td><td>1.17</td></tr>
+                            <tr><td>GBP → USD</td><td>1.27</td></tr>
+                            <tr><td>EUR → GBP</td><td>0.85</td></tr>
+                            <tr><td>USD → GBP</td><td>0.79</td></tr>
+                        </table>
+                    </div>
+                    <div class="alert alert-warning" style="margin-top:0.75rem;">
+                        <strong>Przykład:</strong> Wysłanie £1,000 do USA (USD) kosztuje £1,010 z opłatą 1%. Odbiorca otrzyma ~$1,270.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('transferForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const resultContainer = document.getElementById('resultContainer');
+            const resultContent = document.getElementById('resultContent');
+            const resultTitle = document.getElementById('resultTitle');
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Przetwarzanie...';
+            resultContainer.classList.remove('show', 'result-success', 'result-error');
+
+            try {
+                const resp = await fetch('/api/transfer/swift', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        from_sort_code: document.getElementById('from_sort').value,
+                        from_account: document.getElementById('from_acc').value,
+                        to_sort_code: document.getElementById('to_sort').value,
+                        to_account: document.getElementById('to_acc').value,
+                        amount: document.getElementById('amount').value,
+                        to_currency: document.getElementById('to_currency').value
+                    })
+                });
+                const data = await resp.json();
+                resultContainer.classList.add('show');
+                if (resp.ok) {
+                    resultContainer.classList.add('result-success');
+                    resultTitle.textContent = '✅ Sukces!';
+                    resultContent.textContent = JSON.stringify(data, null, 2);
+                } else {
+                    resultContainer.classList.add('result-error');
+                    resultTitle.textContent = '❌ Błąd';
+                    resultContent.textContent = data.detail || JSON.stringify(data, null, 2);
+                }
+            } catch (err) {
+                resultContainer.classList.add('show', 'result-error');
+                resultTitle.textContent = '❌ Błąd połączenia';
+                resultContent.textContent = err.message;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Wyślij SWIFT';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -3,8 +3,10 @@ uvicorn[standard]
 psycopg2-binary
 sqlalchemy
 pyjwt
-passlib[bcrypt]
+bcrypt
 requests
 python-multipart
 apscheduler
 pandas
+jinja2
+aiofiles

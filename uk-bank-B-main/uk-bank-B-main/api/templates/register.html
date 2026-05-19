@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Bank B - Rejestracja</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-logo">
+                <div class="logo-circle">UK</div>
+                <h1>UK Bank B</h1>
+                <p>Utwórz nowe konto</p>
+            </div>
+
+            <form action="/auth/register" method="POST">
+                <div class="form-group">
+                    <label for="username">Nazwa użytkownika</label>
+                    <input type="text" id="username" name="username" class="form-control" placeholder="Wybierz nazwę użytkownika" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Hasło</label>
+                    <input type="password" id="password" name="password" class="form-control" placeholder="Wybierz hasło" required>
+                </div>
+                <div class="form-group">
+                    <label for="role">Rola</label>
+                    <select id="role" name="role" class="form-control">
+                        <option value="customer">Klient</option>
+                        <option value="employee">Pracownik banku</option>
+                        <option value="operator">Operator systemu</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary btn-lg btn-block">Zarejestruj się</button>
+            </form>
+
+            <div class="auth-link">
+                Masz już konto? <a href="/login">Zaloguj się</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

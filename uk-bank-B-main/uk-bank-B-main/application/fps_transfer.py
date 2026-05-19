@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from datetime import datetime, timedelta
 from domain.exceptions import InsufficientFundsError
+from domain.value_objects import AccountNumber, Money
+from domain.repositories import AccountRepository
 
 class GridlockService:
     """Mechanizm rozwiązywania zatorów płatniczych (3.0)"""

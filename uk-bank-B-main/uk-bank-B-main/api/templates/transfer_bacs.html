@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Bank B - BACS Transfer</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/dashboard" class="navbar-brand">
+            <div class="logo-icon">UK</div>
+            <span>UK Bank B</span>
+        </a>
+        <div class="navbar-nav">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/transfer/internal" class="active">Przelewy</a>
+        </div>
+        <div class="navbar-user">
+            <div class="user-avatar">{{ user.username[0]|upper }}</div>
+            <span>{{ user.username }}</span>
+            <a href="/logout" class="btn-logout">Wyloguj</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="transfer-hero">
+            <div class="hero-icon">📤</div>
+            <h2>BACS Transfer</h2>
+            <p>Standardowy przelew międzybankowy z rozliczeniem w ciągu 3 dni</p>
+            <div class="hero-limits">
+                <span>✓ Bez limitów kwotowych</span>
+                <span>⏱ Rozliczenie: 3 dni robocze</span>
+                <span>✓ Tylko UK (GBP)</span>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-header"><h3>📝 Formularz przelewu BACS</h3></div>
+                <div class="card-body">
+                    <form id="transferForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Sort Code nadawcy</label>
+                                <input type="text" class="form-control" id="from_sort" value="102030" placeholder="6 cyfr">
+                            </div>
+                            <div class="form-group">
+                                <label>Konto nadawcy</label>
+                                <input type="text" class="form-control" id="from_acc" value="11111111" placeholder="8 cyfr">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Sort Code odbiorcy</label>
+                                <input type="text" class="form-control" id="to_sort" value="112233" placeholder="6 cyfr">
+                            </div>
+                            <div class="form-group">
+                                <label>Konto odbiorcy</label>
+                                <input type="text" class="form-control" id="to_acc" value="87654321" placeholder="8 cyfr">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Kwota (£)</label>
+                            <input type="number" class="form-control" id="amount" value="500.00" step="0.01" min="0.01" placeholder="0.00">
+                        </div>
+                        <button type="submit" class="btn btn-success btn-lg btn-block" id="submitBtn">
+                            Wyślij BACS
+                        </button>
+                    </form>
+
+                    <div class="result-container" id="resultContainer">
+                        <div class="result-title" id="resultTitle">✅ Rezultat</div>
+                        <pre id="resultContent"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><h3>ℹ️ Informacje</h3></div>
+                <div class="card-body">
+                    <table class="info-table">
+                        <tr><th>Typ przelewu</th><td>BACS (Bankers' Automated Clearing Services)</td></tr>
+                        <tr><th>Kraje</th><td>UK tylko</td></tr>
+                        <tr><th>Czas realizacji</th><td>3 dni robocze (T+3)</td></tr>
+                        <tr><th>Limit kwoty</th><td>Brak limitu</td></tr>
+                        <tr><th>Opłaty</th><td>Niska opłata (zależna od banku)</td></tr>
+                        <tr><th>Waluta</th><td>GBP</td></tr>
+                    </table>
+                    <div class="alert alert-warning" style="margin-top:1rem;">
+                        <strong>Uwaga:</strong> BACS to standardowy przelew międzybankowy. Środki są dostępne dla odbiorcy po 3 dniach roboczych. Jest to najpopularniejszy typ przelewu w UK do płatności niepilnych.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('transferForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const resultContainer = document.getElementById('resultContainer');
+            const resultContent = document.getElementById('resultContent');
+            const resultTitle = document.getElementById('resultTitle');
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Przetwarzanie...';
+            resultContainer.classList.remove('show', 'result-success', 'result-error');
+
+            try {
+                const resp = await fetch('/api/transfer/bacs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        from_sort_code: document.getElementById('from_sort').value,
+                        from_account: document.getElementById('from_acc').value,
+                        to_sort_code: document.getElementById('to_sort').value,
+                        to_account: document.getElementById('to_acc').value,
+                        amount: document.getElementById('amount').value
+                    })
+                });
+                const data = await resp.json();
+                resultContainer.classList.add('show');
+                if (resp.ok) {
+                    resultContainer.classList.add('result-success');
+                    resultTitle.textContent = '✅ Sukces!';
+                    resultContent.textContent = JSON.stringify(data, null, 2);
+                } else {
+                    resultContainer.classList.add('result-error');
+                    resultTitle.textContent = '❌ Błąd';
+                    resultContent.textContent = data.detail || JSON.stringify(data, null, 2);
+                }
+            } catch (err) {
+                resultContainer.classList.add('show', 'result-error');
+                resultTitle.textContent = '❌ Błąd połączenia';
+                resultContent.textContent = err.message;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Wyślij BACS';
+            }
+        });
+    </script>
+</body>
+</html>
