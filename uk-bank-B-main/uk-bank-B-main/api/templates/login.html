@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Bank B - Login</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-logo">
+                <div class="logo-circle">UK</div>
+                <h1>UK Bank B</h1>
+                <p>Enterprise Banking System</p>
+            </div>
+
+            {% if request.query_params.get('registered') %}
+            <div class="alert alert-success">✓ Rejestracja zakończona sukcesem! Zaloguj się.</div>
+            {% endif %}
+
+            <form action="/auth/login" method="POST">
+                <div class="form-group">
+                    <label for="username">Nazwa użytkownika</label>
+                    <input type="text" id="username" name="username" class="form-control" placeholder="Wpisz nazwę użytkownika" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Hasło</label>
+                    <input type="password" id="password" name="password" class="form-control" placeholder="Wpisz hasło" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-lg btn-block">Zaloguj się</button>
+            </form>
+
+            <div class="auth-link">
+                Nie masz konta? <a href="/register">Zarejestruj się</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
