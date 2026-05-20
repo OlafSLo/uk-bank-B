@@ -1,13 +1,30 @@
 import os
+import time
 import psycopg2
 import psycopg2.errors
 from psycopg2.extras import RealDictCursor
 from decimal import Decimal
 from typing import Optional
-
 from domain.entities import Account, User, UserRole
 from domain.value_objects import AccountNumber, Money, Currency
 from domain.repositories import AccountRepository, UserRepository
+
+
+def _wait_for_db(db_url: str, max_retries: int = 30, delay: float = 2.0):
+    """Czeka, aż PostgreSQL będzie gotowy do przyjęcia połączeń."""
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            conn = psycopg2.connect(db_url, connect_timeout=2)
+            conn.close()
+            print(f"[DB] Połączono z PostgreSQL (próba {attempt})")
+            return
+        except Exception as e:
+            last_error = e
+            print(f"[DB] PostgreSQL niegotowy, próba {attempt}/{max_retries} za {delay}s... ({e})")
+            time.sleep(delay)
+    raise ConnectionError(f"[DB] Nie można połączyć się z PostgreSQL po {max_retries} próbach: {last_error}")
+
 
 class PostgreSQLTransactionRepository:
     def search(self, sender_name=None, start_date=None, end_date=None):
@@ -32,6 +49,7 @@ class PostgreSQLAccountRepository(AccountRepository):
         if db_url is None:
             db_url = os.getenv("DATABASE_URL", "postgresql://bank_user:bank_pass@localhost:5432/bank_db")
         self.db_url = db_url
+        _wait_for_db(self.db_url)
         self._init_db()
 
     def _init_db(self):
@@ -111,6 +129,7 @@ class PostgreSQLUserRepository(UserRepository):
         if db_url is None:
             db_url = os.getenv("DATABASE_URL", "postgresql://bank_user:bank_pass@localhost:5432/bank_db")
         self.db_url = db_url
+        _wait_for_db(self.db_url)
         self._init_db()
 
     def _init_db(self):
