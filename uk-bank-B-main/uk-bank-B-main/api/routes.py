@@ -42,9 +42,10 @@ def setup_mock_data(repo: PostgreSQLAccountRepository):
         cursor.close()
         conn.close()
         if count >= 2:
+            print("[MOCK] Konta testowe już istnieją, pomijam.")
             return
-    except:
-        pass
+    except Exception as e:
+        print(f"[MOCK] Nie można sprawdzić stanu bazy: {e}")
 
     account_1 = Account(
         id=AccountNumber(sort_code="102030", account_number="11111111"),
@@ -56,8 +57,13 @@ def setup_mock_data(repo: PostgreSQLAccountRepository):
         balance=Money(Decimal("1200.00"), Currency.GBP),
         debt_limit=Money(Decimal("50.00"), Currency.GBP)
     )
-    repo.save(account_1)
-    repo.save(account_2)
+    try:
+        repo.save(account_1)
+        repo.save(account_2)
+        print("[MOCK] Utworzono konta testowe: 11111111 (£5000), 22222222 (£1200)")
+    except Exception as e:
+        print(f"[MOCK] Błąd podczas zapisu kont testowych: {e}")
+        raise
 
 
 @asynccontextmanager
