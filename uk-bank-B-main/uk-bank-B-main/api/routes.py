@@ -1,3 +1,4 @@
+import time
 from fastapi import FastAPI, HTTPException, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -33,19 +34,28 @@ swift_service = None
 
 def setup_mock_data(repo: PostgreSQLAccountRepository):
     """Inicjalizuje dane testowe w bazie, jeśli baza jest pusta."""
-    try:
-        import psycopg2
-        conn = psycopg2.connect(repo.db_url)
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM accounts")
-        count = cursor.fetchone()[0]
-        cursor.close()
-        conn.close()
-        if count >= 2:
-            print("[MOCK] Konta testowe już istnieją, pomijam.")
-            return
-    except Exception as e:
-        print(f"[MOCK] Nie można sprawdzić stanu bazy: {e}")
+    # Sprawdź czy konta już istnieją (z retry)
+    max_retries = 10
+    delay = 2.0
+    for attempt in range(1, max_retries + 1):
+        try:
+            import psycopg2
+            conn = psycopg2.connect(repo.db_url, connect_timeout=3)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM accounts")
+            count = cursor.fetchone()[0]
+            cursor.close()
+            conn.close()
+            if count >= 2:
+                print(f"[MOCK] Konta testowe już istnieją ({count}), pomijam.")
+                return
+            break  # Połączenie OK, tabela istnieje - wychodzimy z pętli
+        except Exception as e:
+            print(f"[MOCK] Próba {attempt}/{max_retries}: baza niegotowa ({e})")
+            if attempt == max_retries:
+                print(f"[MOCK] Nie można sprawdzić bazy po {max_retries} próbach, próbuję mimo to...")
+            else:
+                time.sleep(delay)
 
     account_1 = Account(
         id=AccountNumber(sort_code="102030", account_number="11111111"),
@@ -57,13 +67,20 @@ def setup_mock_data(repo: PostgreSQLAccountRepository):
         balance=Money(Decimal("1200.00"), Currency.GBP),
         debt_limit=Money(Decimal("50.00"), Currency.GBP)
     )
-    try:
-        repo.save(account_1)
-        repo.save(account_2)
-        print("[MOCK] Utworzono konta testowe: 11111111 (£5000), 22222222 (£1200)")
-    except Exception as e:
-        print(f"[MOCK] Błąd podczas zapisu kont testowych: {e}")
-        raise
+
+    # Zapisz konta testowe (z retry)
+    for attempt in range(1, max_retries + 1):
+        try:
+            repo.save(account_1)
+            repo.save(account_2)
+            print(f"[MOCK] Utworzono konta testowe: 11111111 (£5000), 22222222 (£1200)")
+            return
+        except Exception as e:
+            print(f"[MOCK] Próba {attempt}/{max_retries}: błąd zapisu ({e})")
+            if attempt == max_retries:
+                print(f"[MOCK] Nie udało się zapisać kont testowych po {max_retries} próbach!")
+                raise
+            time.sleep(delay)
 
 
 @asynccontextmanager

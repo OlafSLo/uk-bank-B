@@ -26,6 +26,37 @@ def _wait_for_db(db_url: str, max_retries: int = 30, delay: float = 2.0):
     raise ConnectionError(f"[DB] Nie można połączyć się z PostgreSQL po {max_retries} próbach: {last_error}")
 
 
+def _execute_with_retry(db_url: str, statements: list, max_retries: int = 15, delay: float = 2.0):
+    """
+    Wykonuje listę instrukcji SQL z ponawianiem.
+    Używa autocommit=True, aby DDL (CREATE TABLE, ALTER TABLE) były trwale zatwierdzane.
+    """
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            conn = psycopg2.connect(db_url, connect_timeout=3)
+            conn.autocommit = True  # DDL zatwierdzane natychmiast
+            cursor = conn.cursor()
+            for stmt in statements:
+                try:
+                    cursor.execute(stmt)
+                except psycopg2.errors.DuplicateColumn:
+                    pass  # Ignoruj: kolumna już istnieje
+                except psycopg2.errors.DuplicateTable:
+                    pass  # Ignoruj: tabela już istnieje
+                except Exception as e:
+                    print(f"[DB] Błąd podczas wykonywania SQL: {e}")
+                    raise
+            cursor.close()
+            conn.close()
+            return
+        except Exception as e:
+            last_error = e
+            print(f"[DB] Błąd wykonania SQL, próba {attempt}/{max_retries} za {delay}s... ({e})")
+            time.sleep(delay)
+    raise RuntimeError(f"[DB] Nie udało się wykonać SQL po {max_retries} próbach: {last_error}")
+
+
 class PostgreSQLTransactionRepository:
     def search(self, sender_name=None, start_date=None, end_date=None):
         query = "SELECT * FROM transactions WHERE 1=1"
@@ -44,6 +75,7 @@ class PostgreSQLTransactionRepository:
         
         return self.db.execute(query, params)
     
+
 class PostgreSQLAccountRepository(AccountRepository):
     def __init__(self, db_url: str = None):
         if db_url is None:
@@ -53,10 +85,9 @@ class PostgreSQLAccountRepository(AccountRepository):
         self._init_db()
 
     def _init_db(self):
-        """Tworzy tabelę w bazie, jeśli jeszcze nie istnieje, i dodaje brakujące kolumny."""
-        conn = psycopg2.connect(self.db_url)
-        cursor = conn.cursor()
-        cursor.execute("""
+        """Tworzy tabelę accounts z ponawianiem i autocommit=TRUE."""
+        _execute_with_retry(self.db_url, [
+            """
             CREATE TABLE IF NOT EXISTS accounts (
                 sort_code VARCHAR(6),
                 account_number VARCHAR(8),
@@ -66,15 +97,10 @@ class PostgreSQLAccountRepository(AccountRepository):
                 is_active BOOLEAN DEFAULT TRUE,
                 PRIMARY KEY (sort_code, account_number)
             )
-        """)
-        # Migracja: dodaj kolumnę debt_limit jeśli nie istnieje (dla istniejących tabel)
-        try:
-            cursor.execute("ALTER TABLE accounts ADD COLUMN debt_limit DECIMAL(15,2) DEFAULT 0.00")
-        except psycopg2.errors.DuplicateColumn:
-            pass  # Kolumna już istnieje - ignorujemy błąd
-        conn.commit()
-        cursor.close()
-        conn.close()
+            """,
+            "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS debt_limit DECIMAL(15,2) DEFAULT 0.00"
+        ])
+        print("[DB] Tabela 'accounts' gotowa.")
 
     def get_by_id(self, account_id: AccountNumber) -> Optional[Account]:
         """Pobiera konto z bazy PostgreSQL i zamienia je na obiekt Pythonowy."""
@@ -133,9 +159,9 @@ class PostgreSQLUserRepository(UserRepository):
         self._init_db()
 
     def _init_db(self):
-        conn = psycopg2.connect(self.db_url)
-        cursor = conn.cursor()
-        cursor.execute("""
+        """Tworzy tabelę users z ponawianiem i autocommit=TRUE."""
+        _execute_with_retry(self.db_url, [
+            """
             CREATE TABLE IF NOT EXISTS users (
                 id VARCHAR(36) PRIMARY KEY,
                 username VARCHAR(50) UNIQUE NOT NULL,
@@ -143,10 +169,9 @@ class PostgreSQLUserRepository(UserRepository):
                 role VARCHAR(20) NOT NULL DEFAULT 'customer',
                 is_active BOOLEAN DEFAULT TRUE
             )
-        """)
-        conn.commit()
-        cursor.close()
-        conn.close()
+            """
+        ])
+        print("[DB] Tabela 'users' gotowa.")
 
     def get_by_id(self, user_id: str) -> Optional[User]:
         conn = psycopg2.connect(self.db_url)
