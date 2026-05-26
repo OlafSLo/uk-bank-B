@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional
-from domain.entities import Account, User
+from domain.entities import Account, User, Card
 from domain.value_objects import AccountNumber
 
 
@@ -15,6 +15,11 @@ class AccountRepository(ABC):
     @abstractmethod
     def save(self, account: Account) -> None:
         """Zapisuje (lub aktualizuje) stan konta w bazie."""
+        pass
+        
+    @abstractmethod
+    def get_all(self) -> list[Account]:
+        """Pobiera listę wszystkich kont w systemie."""
         pass
 
 
@@ -34,4 +39,19 @@ class UserRepository(ABC):
     @abstractmethod
     def save(self, user: User) -> None:
         """Zapisuje (lub aktualizuje) użytkownika."""
+        pass
+
+class CardRepository(ABC):
+    """Interfejs repozytorium kart płatniczych."""
+
+    @abstractmethod
+    def get_by_account(self, account_number: str) -> list[Card]:
+        pass
+
+    @abstractmethod
+    def get_by_number(self, card_number: str) -> Optional[Card]:
+        pass
+
+    @abstractmethod
+    def save(self, card: Card) -> None:
         pass

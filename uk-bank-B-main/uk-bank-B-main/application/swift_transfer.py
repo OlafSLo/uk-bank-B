@@ -40,6 +40,9 @@ class SWIFTTransferUseCase:
         if not source_account:
             raise ValueError(f"Konto nadawcy {from_account_id.account_number} nie istnieje.")
         
+        if not source_account.is_active:
+            raise ValueError("Błąd: Konto nadawcy jest zamrożone (zablokowane). Przelew odrzucony.")
+
         # 2. Walidacja waluty docelowej
         try:
             dest_currency = Currency[to_currency]

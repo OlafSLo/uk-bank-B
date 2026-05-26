@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Bank B - Portal Back-Office</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        .table-container { overflow-x: auto; background: white; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th, td { padding: 15px 20px; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
+        th { background: #f8fafc; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.8rem; }
+        tr:hover { background: #f1f5f9; }
+        .action-form { display: inline-flex; gap: 8px; align-items: center; margin: 0; }
+        .action-form input[type="number"] { width: 100px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-family: 'Inter', sans-serif; }
+        .btn-sm { padding: 6px 12px; font-size: 0.85rem; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; color: white; transition: 0.2s; }
+        .btn-blue { background: #3b82f6; } .btn-blue:hover { background: #2563eb; }
+        .btn-red { background: #ef4444; } .btn-red:hover { background: #dc2626; }
+        .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
+    </style>
+</head>
+<body>
+    <nav class="navbar" style="background: linear-gradient(135deg, #1e293b, #0f172a);">
+        <a href="/dashboard" class="navbar-brand">
+            <div class="logo-icon" style="background: #475569; color: white;">UK</div>
+            <span>UK Bank B (Admin)</span>
+        </a>
+        <div class="navbar-nav">
+            <a href="/back-office" class="active" style="background: rgba(255,255,255,0.2);">🛡️ Back-Office</a>
+        </div>
+        <div class="navbar-user">
+            <div class="user-avatar" style="background: #f87171; color: white;">{{ user.username[0]|upper }}</div>
+            <span>{{ user.username }} (Pracownik)</span>
+            <a href="/logout" class="btn-logout">Wyloguj</a>
+        </div>
+    </nav>
+
+    <div class="container" style="max-width: 1400px;">
+        <div class="transfer-hero" style="background: linear-gradient(135deg, #475569 0%, #334155 100%);">
+            <div class="hero-icon">🛡️</div>
+            <h2>Centralny System Operacyjny</h2>
+            <p>Zarządzanie bezpieczeństwem kont, limity zadłużenia (overdraft) i blokowanie fraudów.</p>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Dane Konta</th>
+                        <th>Typ & Rodzic</th>
+                        <th>Saldo Obecne</th>
+                        <th>Limit Zadłużenia (£)</th>
+                        <th>Status Zabezpieczeń</th>
+                        <th>Bezpieczeństwo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for acc in accounts %}
+                    <tr>
+                        <td>
+                            <strong style="font-size: 1.1em; color: #0f172a;">{{ acc.id.account_number }}</strong><br>
+                            <span style="font-size: 0.8rem; color: #64748b;">SC: {{ acc.id.sort_code }}</span>
+                        </td>
+                        <td>
+                            <span class="status-badge" style="background: {% if acc.account_type == 'junior' %}#fef3c7{% else %}#e2e8f0{% endif %}; color: #334155;">{{ acc.account_type|upper }}</span><br>
+                            <span style="font-size: 0.8rem; color: #64748b;">{% if acc.parent_account_number %}Rodzic: {{ acc.parent_account_number }}{% else %}-{% endif %}</span>
+                        </td>
+                        <td><strong style="color: #0f172a; font-size: 1.1em;">£{{ "%.2f"|format(acc.balance.amount) }}</strong></td>
+                        <td>
+                            <form action="/back-office/set-limit" method="POST" class="action-form">
+                                <input type="hidden" name="sort_code" value="{{ acc.id.sort_code }}">
+                                <input type="hidden" name="account_number" value="{{ acc.id.account_number }}">
+                                <input type="number" step="0.01" min="0" name="limit_amount" value="{{ "%.2f"|format(acc.debt_limit.amount) }}">
+                                <button type="submit" class="btn-sm btn-blue">Aktualizuj</button>
+                            </form>
+                        </td>
+                        <td>
+                            {% if acc.is_active %}<span style="color: #10b981; font-weight: 700;">✅ AKTYWNE</span>{% else %}<span style="color: #ef4444; font-weight: 700;">❌ ZAMROŻONE</span>{% endif %}
+                        </td>
+                        <td>
+                            <form action="/back-office/toggle-status" method="POST" class="action-form">
+                                <input type="hidden" name="sort_code" value="{{ acc.id.sort_code }}">
+                                <input type="hidden" name="account_number" value="{{ acc.id.account_number }}">
+                                <input type="hidden" name="is_active" value="{% if acc.is_active %}false{% else %}true{% endif %}">
+                                <button type="submit" class="btn-sm {% if acc.is_active %}btn-red{% else %}btn-green{% endif %}" title="Zmień status bezpieczeństwa konta">{% if acc.is_active %}Zamroź Konto (Fraud){% else %}Odblokuj Konto{% endif %}</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

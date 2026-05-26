@@ -26,6 +26,9 @@ class CHAPSTransferUseCase:
         if not source_account:
             raise ValueError(f"Konto nadawcy {from_account_id.account_number} nie istnieje.")
         
+        if not source_account.is_active:
+            raise ValueError("Błąd: Konto nadawcy jest zamrożone (zablokowane). Przelew odrzucony.")
+
         # 2. Walidacja limitu CHAPS (10 mln GBP)
         if amount.amount > Decimal("10000000"):
             raise ValueError("CHAPS: Limit transakcji to max 10,000,000 GBP.")

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Bank B - Centrum Rodzinne</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/dashboard" class="navbar-brand">
+            <div class="logo-icon">UK</div>
+            <span>UK Bank B</span>
+        </a>
+        <div class="navbar-nav">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/transfer/internal">Przelewy</a>
+        </div>
+        <div class="navbar-user">
+            <div class="user-avatar">{{ user.username[0]|upper }}</div>
+            <span>{{ user.username }}</span>
+            <a href="/logout" class="btn-logout">Wyloguj</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="transfer-hero" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);">
+            <div class="hero-icon">👨‍👩‍👧</div>
+            <h2>Centrum Rodzinne (Family Hub)</h2>
+            <p>Zarządzaj kontami swoich dzieci, monitoruj wydatki i zatwierdzaj prośby o przelewy.</p>
+        </div>
+        
+        <div class="grid-2">
+            <!-- Lewa kolumna: Oczekujące prośby od dzieci -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>🔔 Oczekujące prośby (Wymagają zgody)</h3>
+                </div>
+                <div class="card-body">
+                    {% if pending_txs %}
+                        <div class="feature-list">
+                        {% for tx in pending_txs %}
+                            <div class="feature-item" style="flex-direction: column; align-items: stretch; border: 1px solid #e2e8f0; padding: 1rem; border-radius: 8px; margin-bottom: 10px;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                                    <strong>Od: Konto Junior ({{ tx.sender_account }})</strong>
+                                    <span class="badge badge-instant" style="background: #f59e0b;">Czeka na zgodę</span>
+                                </div>
+                                <div style="font-size: 0.9rem; color: #475569; margin-bottom: 15px;">
+                                    Odbiorca: <strong>{{ tx.receiver_account }}</strong> <br>
+                                    Kwota przelewu: <strong style="color: #0f172a; font-size: 1.1rem;">£{{ "%.2f"|format(tx.amount) }}</strong>
+                                </div>
+                                <div style="display: flex; gap: 10px;">
+                                    <button onclick="approveTransfer('11111111', '{{ tx.id }}', true)" class="btn btn-success" style="flex: 1;">✅ Zatwierdź</button>
+                                    <button onclick="approveTransfer('11111111', '{{ tx.id }}', false)" class="btn" style="flex: 1; background: #ef4444; color: white; border:none;">❌ Odrzuć</button>
+                                </div>
+                            </div>
+                        {% endfor %}
+                        </div>
+                    {% else %}
+                        <p style="color: #64748b; text-align: center; padding: 2rem 0;">Brak oczekujących próśb o przelew od Twoich dzieci. 🎉</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Prawa kolumna: Konta Dzieci & Symulacja -->
+            <div>
+                <div class="card" style="margin-bottom: 2rem;">
+                    <div class="card-header">
+                        <h3>🧸 Podpięte konta dzieci</h3>
+                    </div>
+                    <div class="card-body">
+                        {% if child_accounts %}
+                            {% for acc in child_accounts %}
+                            <div class="balance-card" style="margin-bottom: 1rem; padding: 1rem;">
+                                <div class="label">Konto dziecka ({{ acc.account_number }})</div>
+                                <div class="amount" style="font-size: 1.5rem;">£{{ acc.balance }}</div>
+                                <a href="/child-app/{{ acc.account_number }}" class="btn btn-primary" style="display: block; text-align: center; margin-top: 15px; background: #8b5cf6; border-color: #8b5cf6;">📱 Otwórz Aplikację Dziecka</a>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <p style="color: #64748b; margin-bottom: 1rem;">Nie masz jeszcze podpiętych kont Junior.</p>
+                            <a href="/open-junior" class="btn btn-primary btn-block">Załóż nowe konto dziecka</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function approveTransfer(parentAcc, txId, isApproved) {
+            try {
+                const res = await fetch(`/transfer/junior/approve?parent_acc=${parentAcc}&transaction_id=${txId}&approve=${isApproved}`, { method: 'POST' });
+                const data = await res.json();
+                if(res.ok) {
+                    alert(data.message || "Decyzja zapisana pomyślnie.");
+                    window.location.reload();
+                } else {
+                    alert("Błąd: " + (data.detail || JSON.stringify(data)));
+                }
+            } catch(e) {
+                alert("Błąd połączenia z serwerem: " + e.message);
+            }
+        }
+    </script>
+</body>
+</html>
