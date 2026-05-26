@@ -16,6 +16,9 @@ class BACSTransferUseCase:
         if not source_account:
             raise ValueError(f"Konto nadawcy {from_account_id.account_number} nie istnieje w naszym banku.")
 
+        if not source_account.is_active:
+            raise ValueError("Błąd: Konto nadawcy jest zamrożone (zablokowane). Przelew odrzucony.")
+
         # 2. Obciążamy konto naszego klienta
         source_account.debit(amount)
 

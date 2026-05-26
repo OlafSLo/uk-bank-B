@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Bank B - Otwórz Konto Junior</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/dashboard" class="navbar-brand">
+            <div class="logo-icon">UK</div>
+            <span>UK Bank B</span>
+        </a>
+        <div class="navbar-nav">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/transfer/internal">Przelewy</a>
+        </div>
+        <div class="navbar-user">
+            <div class="user-avatar">{{ user.username[0]|upper }}</div>
+            <span>{{ user.username }}</span>
+            <a href="/logout" class="btn-logout">Wyloguj</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="transfer-hero" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+            <div class="hero-icon">🧸</div>
+            <h2>Otwórz Konto Junior</h2>
+            <p>Zbuduj niezależność finansową swojego dziecka pod Twoją pełną kontrolą.</p>
+        </div>
+
+        <div class="card" style="max-width: 600px; margin: 0 auto;">
+            <div class="card-header"><h3>📝 Wniosek o konto dziecka</h3></div>
+            <div class="card-body">
+                <form action="/open-junior" method="POST">
+                    <div class="form-group">
+                        <label>Imię i nazwisko dziecka</label>
+                        <input type="text" name="child_name" class="form-control" required placeholder="Np. Jan Kowalski">
+                    </div>
+                    <div class="form-group">
+                        <label>Data urodzenia dziecka</label>
+                        <input type="date" name="dob" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Pierwsza wpłata z Twojego konta (£)</label>
+                        <input type="number" name="initial_deposit" class="form-control" value="10.00" step="0.01" min="0">
+                    </div>
+                    <button type="submit" class="btn btn-success btn-lg btn-block">Otwórz konto natychmiast</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

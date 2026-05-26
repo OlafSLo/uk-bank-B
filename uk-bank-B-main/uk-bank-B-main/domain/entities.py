@@ -22,6 +22,8 @@ class Account:
     balance: Money
     debt_limit: Money  # Limit zadłużenia banku/klienta
     is_active: bool = True
+    account_type: str = "standard" # "standard" lub "junior"
+    parent_account_number: str | None = None # Numer konta rodzica dla kont junior
 
     def credit(self, amount: Money):
         if not self.is_active:
@@ -37,3 +39,14 @@ class Account:
             raise InsufficientFundsError("Przekroczono limit zadłużenia (Liquidity Alert).")
         
         self.balance -= amount
+
+@dataclass
+class Card:
+    card_number: str
+    account_number: str
+    expiry_date: str
+    cvv: str
+    pin_hash: str
+    is_active: bool = True
+    card_type: str = "debit"
+    daily_limit: Money | None = None

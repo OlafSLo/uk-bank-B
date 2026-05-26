@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikacja Dziecka - UK Bank</title>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Quicksand', sans-serif;
+            background-color: #fce7f3; /* Jasnoróżowy / przyjazny kolor */
+            margin: 0; padding: 20px; color: #374151;
+        }
+        .mobile-container {
+            max-width: 400px; margin: 0 auto; background: white;
+            border-radius: 30px; overflow: hidden;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1); padding: 30px 20px;
+            border: 8px solid #334155;
+        }
+        .header { text-align: center; margin-bottom: 20px; }
+        .header h1 { margin: 0; font-size: 1.5rem; color: #db2777; }
+        .balance-card {
+            background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%);
+            border-radius: 20px; padding: 25px; color: white;
+            text-align: center; box-shadow: 0 4px 15px rgba(236, 72, 153, 0.3);
+            margin-bottom: 25px;
+        }
+        .balance-card span { font-size: 1rem; opacity: 0.9; }
+        .balance-card h2 { margin: 10px 0 0 0; font-size: 2.5rem; font-weight: 700; }
+        
+        .box {
+            background: #f8fafc; border-radius: 15px; padding: 20px;
+            margin-bottom: 20px; border: 2px solid #f1f5f9;
+        }
+        .box h3 { margin-top: 0; font-size: 1.1rem; color: #1e293b; display: flex; align-items: center; gap: 8px; }
+        
+        input {
+            width: 100%; padding: 15px; border-radius: 12px;
+            border: 2px solid #cbd5e1; box-sizing: border-box;
+            font-family: 'Quicksand', sans-serif; font-size: 1rem; margin-bottom: 10px;
+        }
+        button {
+            width: 100%; padding: 15px; border-radius: 12px;
+            border: none; background: #8b5cf6; color: white;
+            font-size: 1.1rem; font-weight: 700; cursor: pointer;
+            font-family: 'Quicksand', sans-serif; box-shadow: 0 4px 10px rgba(139, 92, 246, 0.3);
+        }
+        button:active { transform: translateY(2px); }
+        .badge {
+            background: #fef3c7; color: #d97706; padding: 5px 10px;
+            border-radius: 20px; font-size: 0.8rem; font-weight: 700;
+        }
+        .tx-item { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e2e8f0; }
+        .tx-item:last-child { border-bottom: none; }
+    </style>
+</head>
+<body>
+    <div class="mobile-container">
+        <div class="header">
+            <h1>Hej! 👋</h1>
+            <p style="margin:5px 0 0 0;">Twoje konto: <strong>{{ account.id.account_number }}</strong></p>
+        </div>
+
+        <div class="balance-card">
+            <span>Twoje kieszonkowe</span>
+            <h2>£{{ "%.2f"|format(account.balance.amount) }}</h2>
+        </div>
+
+        <div class="box">
+            <h3>🛒 Kup coś (Prośba do rodzica)</h3>
+            <input type="text" id="target_account" placeholder="Numer konta sklepu/kolegi">
+            <input type="number" id="amount" placeholder="Kwota (£)" min="0.01" step="0.01">
+            <button onclick="sendRequest()">Wyślij prośbę 🚀</button>
+        </div>
+
+        <div class="box">
+            <h3>⏳ Oczekujące prośby</h3>
+            {% if pending_txs %}
+                {% for tx in pending_txs %}
+                <div class="tx-item">
+                    <div><strong>Do: {{ tx.receiver_account }}</strong><br><span class="badge">Czeka na zgodę</span></div>
+                    <div style="font-weight:700;">£{{ "%.2f"|format(tx.amount) }}</div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p style="text-align:center; color:#94a3b8; font-size:0.9rem;">Brak oczekujących przelewów!</p>
+            {% endif %}
+        </div>
+        
+        <button onclick="window.location='/portal-junior'" style="background: #cbd5e1; color: #475569; margin-top: 10px; box-shadow: none;">⬅ Wróć do banku rodzica</button>
+    </div>
+
+    <script>
+        async function sendRequest() {
+            const to = document.getElementById('target_account').value;
+            const amt = document.getElementById('amount').value;
+            if(!to || !amt) return alert("Wpisz numer konta i kwotę!");
+            
+            try {
+                const res = await fetch(`/transfer/junior/request?from_acc={{ account.id.account_number }}&to_acc=${to}&amount=${amt}`, { method: 'POST' });
+                if(res.ok) window.location.reload();
+                else {
+                    const data = await res.json();
+                    alert("Błąd: " + (data.detail || "Sprawdź poprawność danych!"));
+                }
+            } catch(e) {
+                alert("Błąd połączenia z serwerem.");
+            }
+        }
+    </script>
+</body>
+</html>

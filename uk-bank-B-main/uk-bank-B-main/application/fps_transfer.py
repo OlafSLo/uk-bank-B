@@ -46,6 +46,9 @@ class FPSTransferUseCase:
         if not source_account:
             raise ValueError("Konto nadawcy nie istnieje.")
 
+        if not source_account.is_active:
+            raise ValueError("Błąd: Konto nadawcy jest zamrożone (zablokowane). Przelew odrzucony.")
+
         # 1. Walidacja techniczna (Limit kwotowy FPS)
         if amount.amount > Decimal("250000"):
             raise ValueError("FPS: Limit transakcji to 250,000 GBP.")
