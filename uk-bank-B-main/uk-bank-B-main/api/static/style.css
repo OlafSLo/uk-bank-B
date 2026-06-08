@@ -961,3 +961,70 @@ select.form-control {
 .dashboard-cards-summary a:hover {
     text-decoration: underline;
 }
+
+/* =========================================
+   INTEGRATIONS STATUS
+   ========================================= */
+.integ-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.integ-table tr {
+    border-bottom: 1px solid var(--border, #e5e7eb);
+}
+
+.integ-table tr:last-child {
+    border-bottom: none;
+}
+
+.integ-table td {
+    padding: 0.85rem 1.1rem;
+    vertical-align: middle;
+}
+
+.integ-name {
+    font-weight: 600;
+    color: var(--primary-dark, #1a3a5c);
+    white-space: nowrap;
+}
+
+.integ-url code {
+    font-size: 0.8rem;
+    color: var(--text-light, #64748b);
+    word-break: break-all;
+}
+
+.integ-status {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.integ-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.integ-ok {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #86efac;
+}
+
+.integ-fail {
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fca5a5;
+}
+
+.btn-secondary {
+    background: #e2e8f0;
+    color: #1e293b;
+}
+
+.btn-secondary:hover {
+    background: #cbd5e1;
+}

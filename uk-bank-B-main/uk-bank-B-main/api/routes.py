@@ -16,6 +16,8 @@ from application.internal_transfer import InternalTransferUseCase
 from application.auth_service import AuthUseCase, AuthService
 from infrastructure.postgresql_repository import PostgreSQLAccountRepository, PostgreSQLUserRepository, PostgreSQLTransactionRepository, PostgreSQLCardRepository
 from infrastructure.card_gateway_client import CardGatewayClient
+from infrastructure.swift_client import SwiftMiddlewareClient
+from application.swift_network_service import SwiftNetworkService
 from application.bacs_transfer import BACSTransferUseCase
 from application.fps_transfer import FPSTransferUseCase
 from application.chaps_transfer import CHAPSTransferUseCase
@@ -42,6 +44,8 @@ card_repo = None
 card_service = None
 card_settlement_service = None
 card_gateway = None
+swift_client = None
+swift_network_service = None
 
 
 def setup_mock_data(repo: PostgreSQLAccountRepository, auth: AuthUseCase):
@@ -108,6 +112,7 @@ async def lifespan(app: FastAPI):
     global repo, user_repo, auth_service, auth_use_case
     global transfer_service, bacs_service, fps_service, chaps_service, swift_service
     global tx_repo, employee_service, card_repo, card_service, card_settlement_service, card_gateway
+    global swift_client, swift_network_service
 
     repo = PostgreSQLAccountRepository()
     user_repo = PostgreSQLUserRepository()
@@ -124,6 +129,8 @@ async def lifespan(app: FastAPI):
     card_service = CardService(repo, card_repo)
     card_settlement_service = CardSettlementService(repo, card_repo)
     card_gateway = CardGatewayClient()
+    swift_client = SwiftMiddlewareClient()
+    swift_network_service = SwiftNetworkService(repo, swift_client)
 
     setup_mock_data(repo, auth_use_case)
     yield
@@ -478,6 +485,14 @@ class SWIFTTransferRequest(BaseModel):
     to_account: str
     amount: Decimal
     to_currency: str = "GBP"
+    # Pola sieci SWIFT (opcjonalne – fallback do symulacji jeśli puste)
+    receiver_bic: Optional[str] = None
+    receiver_name: Optional[str] = None
+    sender_name: Optional[str] = None
+    charge_bearer: Optional[str] = "SHAR"
+    remittance_info: Optional[str] = None
+    use_network: bool = True
+    auto_send: bool = True
 
 
 @app.get("/api/account/{sort_code}/{account_number}")
@@ -813,9 +828,32 @@ def api_chaps_transfer(req: TransferRequest):
 
 @app.post("/api/transfer/swift")
 def api_swift_transfer(req: SWIFTTransferRequest):
+    sender = AccountNumber(req.from_sort_code, req.from_account)
+    money = Money(req.amount, Currency.GBP)
+
+    # Tryb sieciowy: realny komunikat ISO 20022 do middleware SWIFT
+    receiver_bic = (req.receiver_bic or req.to_sort_code or "").strip().upper()
+    if req.use_network and receiver_bic:
+        try:
+            return swift_network_service.send_international(
+                from_account_id=sender,
+                receiver_bic=receiver_bic,
+                receiver_account=req.to_account,
+                amount=money,
+                to_currency=req.to_currency,
+                receiver_name=req.receiver_name or "Beneficiary",
+                sender_name=req.sender_name or "UK Bank B Customer",
+                charge_bearer=(req.charge_bearer or "SHAR"),
+                remittance_info=req.remittance_info or "",
+                auto_send=req.auto_send,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"SWIFT middleware niedostępny: {e}")
+
+    # Fallback: lokalna symulacja (bez sieci SWIFT)
     try:
-        sender = AccountNumber(req.from_sort_code, req.from_account)
-        money = Money(req.amount, Currency.GBP)
         result = swift_service.execute(
             from_account_id=sender,
             to_sort_code=req.to_sort_code,
@@ -823,9 +861,174 @@ def api_swift_transfer(req: SWIFTTransferRequest):
             amount=money,
             to_currency=req.to_currency
         )
+        result["network"] = "SIMULATION (middleware wyłączony)"
         return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/swift/cancel/{uetr}")
+def api_swift_cancel(uetr: str):
+    try:
+        return swift_network_service.cancel(uetr)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/swift/status")
+def api_swift_status():
+    """Status integracji z siecią SWIFT (do GUI i monitoringu)."""
+    health = swift_client.health_check() if swift_client else {"ok": False}
+    public_url = (health.get("url") or "http://localhost:3000").replace(
+        "swift-app", "localhost"
+    ).replace("host.docker.internal", "localhost")
+    token_ok = False
+    banks = []
+    if health.get("ok"):
+        try:
+            swift_client.get_token(force=True)
+            token_ok = True
+            banks = swift_client._token_banks
+        except Exception:
+            token_ok = False
+    return {
+        "bank": {"ok": True, "bic": swift_client.bank_bic if swift_client else "UKBKGB01XXX"},
+        "swift_middleware": health,
+        "dashboard_url": public_url,
+        "auth_ok": token_ok,
+        "allowed_banks": banks,
+        "receive_endpoint": "POST /receive",
+    }
+
+
+def _public_url(url: str) -> str:
+    return (url or "").replace("payment-gateway:8000", "localhost:8072") \
+        .replace("host.docker.internal", "localhost") \
+        .replace("swift-app", "localhost")
+
+
+@app.get("/api/integrations")
+def api_integrations():
+    """Zagregowany status wszystkich integracji (sprawdzane po stronie serwera).
+
+    Sprawdzenia używają wewnętrznych adresów (host.docker.internal), więc realnie
+    zwracają HTTP 200, a w GUI prezentujemy publiczne adresy (localhost).
+    """
+    import requests as http_requests
+
+    checks: list[dict] = []
+
+    def probe(name: str, group: str, url: str, method: str = "GET"):
+        entry = {"name": name, "group": group, "url": _public_url(url), "method": method}
+        try:
+            if method == "GET":
+                r = http_requests.get(url, timeout=4)
+            else:
+                r = http_requests.request(method, url, timeout=4)
+            entry["status"] = r.status_code
+            entry["ok"] = 200 <= r.status_code < 400
+        except Exception as exc:
+            entry["status"] = None
+            entry["ok"] = False
+            entry["error"] = str(exc)
+        checks.append(entry)
+        return entry
+
+    # --- UK Bank B (samo siebie) ---
+    checks.append({
+        "name": "UK Bank B API", "group": "Bank", "url": "http://localhost:8000/api/info",
+        "method": "GET", "status": 200, "ok": True,
+    })
+
+    # --- Moduł kart ---
+    gw = card_gateway.health_check() if card_gateway else {"ok": False, "url": ""}
+    gw_url = gw.get("url") or "http://host.docker.internal:8072"
+    probe("Payment Gateway (Swagger)", "Karty płatnicze", f"{gw_url}/docs")
+    probe("Terminal POS", "Karty płatnicze", f"{gw_url}/pos")
+    admin_url = os.getenv("CARD_ADMIN_PANEL_URL", "http://host.docker.internal:3072")
+    probe("Panel admina kart", "Karty płatnicze", admin_url)
+
+    # --- Sieć SWIFT ---
+    sw = swift_client.health_check() if swift_client else {"ok": False, "url": ""}
+    sw_url = sw.get("url") or "http://host.docker.internal:3000"
+    probe("Middleware SWIFT (API)", "Sieć SWIFT", f"{sw_url}/api/openapi.json")
+    probe("Panel operatora SWIFT", "Sieć SWIFT", f"{sw_url}/")
+    probe("Swagger SWIFT", "Sieć SWIFT", f"{sw_url}/docs")
+    token_entry = {"name": "Autoryzacja OAuth2 (token)", "group": "Sieć SWIFT",
+                   "url": _public_url(f"{sw_url}/auth/token"), "method": "POST"}
+    try:
+        if swift_client:
+            swift_client.get_token(force=True)
+            token_entry["status"] = 200
+            token_entry["ok"] = True
+    except Exception as exc:
+        token_entry["status"] = None
+        token_entry["ok"] = False
+        token_entry["error"] = str(exc)
+    checks.append(token_entry)
+
+    total = len(checks)
+    ok_count = sum(1 for c in checks if c.get("ok"))
+    return {
+        "summary": {"total": total, "ok": ok_count, "all_ok": ok_count == total},
+        "checks": checks,
+    }
+
+
+@app.get("/integracje", response_class=HTMLResponse, include_in_schema=False)
+def integrations_page(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    return templates.TemplateResponse(request, "integrations.html", {
+        "request": request,
+        "user": user,
+        "swift_dashboard": _public_url(os.getenv("SWIFT_MIDDLEWARE_URL", "http://localhost:3000")),
+        "pos_url": _public_url(os.getenv("CARD_GATEWAY_URL", "http://localhost:8072")) + "/pos",
+    })
+
+
+class SwiftReceiveAck(BaseModel):
+    pass
+
+
+@app.post("/receive")
+@app.post("/swift/receive")
+async def swift_receive(request: Request):
+    """Odbiór przychodzącego przelewu SWIFT (rola banku odbiorcy w sieci).
+
+    Middleware forwarduje tu pacs.008 z nagłówkami X-SWIFT-*. Uznajemy konto
+    i (jeśli podano callback) odsyłamy potwierdzenie ACK.
+    """
+    xml_body = (await request.body()).decode("utf-8", errors="ignore")
+    h = request.headers
+    result, status = swift_network_service.receive_incoming(
+        xml_body=xml_body,
+        currency=h.get("X-SWIFT-Currency", ""),
+        uetr=h.get("X-SWIFT-UETR", ""),
+        message_id=h.get("X-SWIFT-Message-Id", ""),
+        receiver_account=h.get("X-SWIFT-Receiver-Account", ""),
+        sender_account=h.get("X-SWIFT-Sender-Account", ""),
+        settlement_date=h.get("X-SWIFT-Settlement-Date", ""),
+    )
+
+    callback_url = h.get("X-SWIFT-Callback-Url", "")
+    if callback_url and status == 202:
+        try:
+            import requests as _rq
+            _rq.post(callback_url, json={
+                "status": "accepted",
+                "bank": "UK Bank B",
+                "received_at": result.get("received_at"),
+                "message_id": result.get("message_id"),
+                "uetr": result.get("uetr"),
+                "receiver_account": h.get("X-SWIFT-Receiver-Account", ""),
+            }, timeout=3.0)
+        except Exception:
+            pass
+
+    from fastapi.responses import JSONResponse
+    return JSONResponse(content=result, status_code=status)
 
 # ========================
 #   API JUNIOR TRANSFER
@@ -874,6 +1077,8 @@ def api_info():
         "card_gateway": os.getenv("CARD_GATEWAY_URL", "http://localhost:8072"),
         "card_integration": "UK_BANK_B (BIN 460001, bank-key-uk-b)",
         "pos_terminal": f"{os.getenv('CARD_GATEWAY_URL', 'http://localhost:8072')}/pos",
+        "swift_middleware": os.getenv("SWIFT_MIDDLEWARE_URL", "http://localhost:3000"),
+        "swift_bic": os.getenv("SWIFT_BANK_BIC", "UKBKGB01XXX"),
     }
 
 
