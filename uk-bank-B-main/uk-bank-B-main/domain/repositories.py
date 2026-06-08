@@ -53,5 +53,41 @@ class CardRepository(ABC):
         pass
 
     @abstractmethod
+    def get_by_token(self, card_token: str) -> Optional[Card]:
+        pass
+
+    @abstractmethod
+    def get_by_authorization_code(self, authorization_code: str) -> Optional[Card]:
+        pass
+
+    @abstractmethod
     def save(self, card: Card) -> None:
+        pass
+
+    @abstractmethod
+    def save_capture(
+        self,
+        authorization_code: str,
+        transaction_id: str,
+        card_number: str,
+        amount: float,
+        currency: str,
+        status: str,
+    ) -> None:
+        pass
+
+    @abstractmethod
+    def save_authorization_hold(
+        self,
+        authorization_code: str,
+        account_number: str,
+        amount: float,
+        currency: str,
+        transaction_id: str,
+        merchant_name: str,
+    ) -> None:
+        pass
+
+    @abstractmethod
+    def save_refund(self, original_transaction_id: str, amount: float, currency: str) -> None:
         pass

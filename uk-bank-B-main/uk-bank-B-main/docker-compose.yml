@@ -1,13 +1,22 @@
 services:
-  bank-app:
+  uk-bank-b:
     build: .
+    container_name: uk-bank-b
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql://bank_user:bank_pass@postgres:5432/bank_db
+      DATABASE_URL: postgresql://bank_user:bank_pass@postgres:5432/bank_db
+      # Payment Gateway na hoście (moduł kart: docker compose up, port 8072)
+      CARD_GATEWAY_URL: http://host.docker.internal:8072
+      CARD_API_KEY: bank-key-uk-b
+      CARD_HMAC_SECRET: secret-uk-b-hmac
+      CARD_ADMIN_KEY: admin-secret-key-2026
+      CARD_ADMIN_PANEL_URL: http://host.docker.internal:3072
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: always
 
   postgres:

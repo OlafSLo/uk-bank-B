@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Bank B - Wyrabianie karty</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/dashboard" class="navbar-brand">
+            <div class="logo-icon">UK</div>
+            <span>UK Bank B</span>
+        </a>
+        <div class="navbar-nav">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/transfer/internal">Przelewy</a>
+            <a href="/karta" class="active">Karty</a>
+        </div>
+        <div class="navbar-user">
+            <div class="user-avatar">{{ user.username[0]|upper }}</div>
+            <span>{{ user.username }}</span>
+            <a href="/logout" class="btn-logout">Wyloguj</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="transfer-hero card-hero">
+            <div class="hero-icon">💳</div>
+            <h2>Wyrabianie karty płatniczej</h2>
+            <p>Karta PREPAID powiązana z saldem konta · BIN 460001 · integracja z modułem kart</p>
+            <div class="hero-limits">
+                <span>✓ Saldo = saldo konta</span>
+                <span>✓ Płatności w terminalu POS</span>
+                <span>✓ GBP</span>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-header"><h3>📝 Wydaj nową kartę</h3></div>
+                <div class="card-body">
+                    <form id="issueForm">
+                        <div class="form-group">
+                            <label>Konto do powiązania</label>
+                            <select class="form-control" id="account_select" required>
+                                {% for acc in accounts %}
+                                <option value="{{ acc.id.sort_code }}|{{ acc.id.account_number }}"
+                                        data-balance="{{ acc.balance.amount }}">
+                                    {{ acc.id.sort_code }}-{{ acc.id.account_number }}
+                                    — £{{ "%.2f"|format(acc.balance.amount) }}
+                                    {% if acc.account_type == 'junior' %}(Junior){% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>PIN karty (4 cyfry)</label>
+                            <input type="password" class="form-control" id="pin" maxlength="4"
+                                   pattern="\d{4}" placeholder="np. 1234" required>
+                        </div>
+                        <button type="submit" class="btn btn-success btn-lg btn-block" id="issueBtn">
+                            Wydaj kartę PREPAID
+                        </button>
+                    </form>
+
+                    <div class="result-container" id="issueResult">
+                        <div class="result-title" id="issueResultTitle">✅ Karta wydana</div>
+                        <pre id="issueResultContent"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><h3>🖥️ Terminal POS — co wpisać</h3></div>
+                <div class="card-body">
+                    <p style="margin-bottom:1rem; color:var(--text-light); font-size:0.9rem;">
+                        Otwórz terminal kolegi i wklej dokładnie te wartości. Najczęstszy powód
+                        <strong style="color:var(--danger);">DECLINED</strong>: zły rok (wpisz <strong>29</strong>, nie 2029)
+                        albo kwota większa niż saldo karty.
+                    </p>
+                    <table class="info-table pos-fields-table" id="posFieldsTable">
+                        <tr><th>Pole w POS</th><th>Wartość</th></tr>
+                        <tr><td>Numer karty</td><td class="pos-val" id="pos-card">— wydaj kartę —</td></tr>
+                        <tr><td>Miesiąc (expiry_month)</td><td class="pos-val" id="pos-month">—</td></tr>
+                        <tr><td>Rok (expiry_year)</td><td class="pos-val pos-highlight" id="pos-year">—</td></tr>
+                        <tr><td>CVV</td><td class="pos-val" id="pos-cvv">—</td></tr>
+                        <tr><td>Kwota (amount)</td><td class="pos-val" id="pos-amount">np. 50.00 (≤ saldo)</td></tr>
+                    </table>
+                    <div class="alert alert-warning" style="margin-top:1rem;">
+                        <strong>Rok ważności:</strong> w formularzu POS pole „rok” to <em>2 cyfry</em>
+                        (np. <code>29</code> dla 06/29). Wpisanie <code>2029</code> daje DECLINED.
+                    </div>
+                    <a href="{{ pos_url }}" target="_blank" class="btn btn-primary btn-block" style="margin-top:1rem;">
+                        Otwórz terminal POS ↗
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:1.5rem;">
+            <div class="card-header">
+                <h3>📋 Twoje karty</h3>
+                <span style="font-size:0.85rem; color:var(--text-light);">Saldo z modułu kart (PREPAID)</span>
+            </div>
+            <div class="card-body">
+                {% set has_any = namespace(value=false) %}
+                {% for acc in accounts %}
+                    {% set cards = cards_by_account.get(acc.id.account_number, []) %}
+                    {% if cards %}
+                        {% set has_any.value = true %}
+                        <h4 style="color:var(--primary); margin:1rem 0 0.75rem;">
+                            Konto {{ acc.id.sort_code }}-{{ acc.id.account_number }}
+                        </h4>
+                        <div class="cards-list">
+                        {% for card in cards %}
+                            <div class="payment-card-tile {% if not card.is_active %}blocked{% endif %}">
+                                <div class="pct-top">
+                                    <span class="pct-type">{{ card.card_type|upper }} · {{ card.gateway_status or 'ACTIVE' }}</span>
+                                    {% if card.card_token and gateway_balances.get(card.card_token) is not none %}
+                                    <span class="pct-balance">£{{ "%.2f"|format(gateway_balances[card.card_token]) }}</span>
+                                    {% endif %}
+                                </div>
+                                <div class="pct-pan">
+                                    {% if card.masked_pan %}{{ card.masked_pan }}{% else %}{{ card.card_number[:4] }} {{ card.card_number[4:8] }} {{ card.card_number[8:12] }} {{ card.card_number[12:] }}{% endif %}
+                                </div>
+                                <div class="pct-meta">
+                                    <span>EXP {{ card.expiry_date }}</span>
+                                    {% if card.is_active %}<span>CVV {{ card.cvv }}</span>{% endif %}
+                                </div>
+                                {% if card.is_active %}
+                                <div class="pct-actions">
+                                    {% if card.card_token %}
+                                    <button type="button" class="btn-sm btn-sync"
+                                            onclick="syncBalance('{{ card.card_token }}')">Sync saldo</button>
+                                    <button type="button" class="btn-sm btn-pos"
+                                            onclick="fillPosFromCard('{{ card.card_number }}', {{ card.expiry_month }}, {{ card.expiry_year }}, '{{ card.cvv }}', {{ gateway_balances.get(card.card_token, 0) or 0 }})">
+                                        Wypełnij POS
+                                    </button>
+                                    {% endif %}
+                                    <button type="button" class="btn-sm btn-block-card"
+                                            onclick="blockCard('{{ card.card_number }}')">Zastrzeż</button>
+                                </div>
+                                {% else %}
+                                <div class="pct-blocked-label">ZABLOKOWANA</div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                        </div>
+                    {% endif %}
+                {% endfor %}
+                {% if not has_any.value %}
+                <p style="color:var(--text-light); text-align:center; padding:2rem 0;">
+                    Nie masz jeszcze kart. Wydaj pierwszą kartę formularzem powyżej.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div id="card-modal" class="card-modal-overlay">
+        <div class="card-modal">
+            <h2>✅ Karta wydana pomyślnie</h2>
+            <p class="card-modal-sub">Zapisz dane — PAN i CVV są pokazywane <strong>tylko raz</strong>.</p>
+            <div class="card-modal-visual">
+                <div class="cm-pan" id="modal-pan"></div>
+                <div class="cm-row">
+                    <span>EXP: <span id="modal-exp"></span></span>
+                    <span>CVV: <span id="modal-cvv"></span></span>
+                </div>
+            </div>
+            <div class="alert alert-info" style="margin-top:1rem; font-size:0.85rem;">
+                W POS wpisz rok jako <strong id="modal-year-hint"></strong> (2 cyfry, nie 2029).
+            </div>
+            <div class="card-modal-actions">
+                <button type="button" class="btn btn-primary" onclick="closeCardModal(true)">Odśwież listę</button>
+                <a href="{{ pos_url }}" target="_blank" class="btn btn-success">Terminal POS ↗</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function fillPosFields(data, balance) {
+            document.getElementById('pos-card').textContent = data.card_number;
+            document.getElementById('pos-month').textContent = String(data.expiry_month);
+            document.getElementById('pos-year').textContent = String(data.expiry_year);
+            document.getElementById('pos-cvv').textContent = data.cvv;
+            const maxAmt = balance != null ? Math.min(balance, 9999).toFixed(2) : '50.00';
+            document.getElementById('pos-amount').textContent = 'np. ' + maxAmt + ' (max saldo karty)';
+        }
+
+        function fillPosFromCard(pan, month, year, cvv, balance) {
+            fillPosFields({ card_number: pan, expiry_month: month, expiry_year: year, cvv: cvv }, balance);
+            document.getElementById('posFieldsTable').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        function showCardModal(data) {
+            document.getElementById('modal-pan').textContent =
+                data.card_number.replace(/(.{4})/g, '$1 ').trim();
+            document.getElementById('modal-exp').textContent = data.expiry_date;
+            document.getElementById('modal-cvv').textContent = data.cvv;
+            document.getElementById('modal-year-hint').textContent = String(data.expiry_year);
+            document.getElementById('card-modal').classList.add('show');
+            fillPosFields(data, null);
+        }
+
+        function closeCardModal(reload) {
+            document.getElementById('card-modal').classList.remove('show');
+            if (reload) window.location.reload();
+        }
+
+        document.getElementById('issueForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('issueBtn');
+            const pin = document.getElementById('pin').value;
+            if (!/^\d{4}$/.test(pin)) return alert('PIN musi mieć dokładnie 4 cyfry.');
+
+            const [sortCode, accountNumber] = document.getElementById('account_select').value.split('|');
+            const formData = new URLSearchParams();
+            formData.append('sort_code', sortCode);
+            formData.append('account_number', accountNumber);
+            formData.append('pin', pin);
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Wydawanie karty...';
+
+            try {
+                const res = await fetch('/api/cards/issue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData.toString()
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showCardModal(data);
+                    const rc = document.getElementById('issueResult');
+                    rc.classList.add('show', 'result-success');
+                    document.getElementById('issueResultTitle').textContent = '✅ Sukces';
+                    document.getElementById('issueResultContent').textContent = JSON.stringify(data, null, 2);
+                } else {
+                    alert('Błąd: ' + (data.detail || 'Nie udało się wydać karty.'));
+                }
+            } catch (err) {
+                alert('Błąd połączenia: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Wydaj kartę PREPAID';
+            }
+        });
+
+        async function syncBalance(cardToken) {
+            const formData = new URLSearchParams();
+            formData.append('card_token', cardToken);
+            try {
+                const res = await fetch('/api/cards/sync-balance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData.toString()
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert('Saldo zsynchronizowane. Nowe saldo na karcie: £' + data.new_balance);
+                    window.location.reload();
+                } else {
+                    alert('Błąd: ' + (data.detail || 'Sync failed'));
+                }
+            } catch (e) {
+                alert('Błąd połączenia: ' + e.message);
+            }
+        }
+
+        async function blockCard(cardNumber) {
+            if (!confirm('Czy na pewno chcesz zastrzec tę kartę? Tego nie da się cofnąć.')) return;
+            const formData = new URLSearchParams();
+            formData.append('card_number', cardNumber.replace(/\s+/g, ''));
+            try {
+                const res = await fetch('/api/cards/block', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData.toString()
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(data.message);
+                    window.location.reload();
+                } else {
+                    alert('Błąd: ' + (data.detail || 'Nie udało się zastrzec karty.'));
+                }
+            } catch (e) {
+                alert('Błąd połączenia: ' + e.message);
+            }
+        }
+    </script>
+</body>
+</html>

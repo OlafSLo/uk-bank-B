@@ -148,27 +148,71 @@ class PostgreSQLCardRepository(CardRepository):
                 pin_hash TEXT NOT NULL,
                 is_active BOOLEAN DEFAULT TRUE,
                 card_type VARCHAR(20) DEFAULT 'debit',
-                daily_limit DECIMAL(15,2) DEFAULT 1000.00
+                daily_limit DECIMAL(15,2) DEFAULT 1000.00,
+                card_token VARCHAR(64) UNIQUE,
+                gateway_status VARCHAR(20) DEFAULT 'REQUESTED',
+                masked_pan VARCHAR(32) DEFAULT '',
+                expiry_month INTEGER DEFAULT 0,
+                expiry_year INTEGER DEFAULT 0
             )
+            """,
+            "ALTER TABLE cards ADD COLUMN IF NOT EXISTS card_token VARCHAR(64) UNIQUE",
+            "ALTER TABLE cards ADD COLUMN IF NOT EXISTS gateway_status VARCHAR(20) DEFAULT 'REQUESTED'",
+            "ALTER TABLE cards ADD COLUMN IF NOT EXISTS masked_pan VARCHAR(32) DEFAULT ''",
+            "ALTER TABLE cards ADD COLUMN IF NOT EXISTS expiry_month INTEGER DEFAULT 0",
+            "ALTER TABLE cards ADD COLUMN IF NOT EXISTS expiry_year INTEGER DEFAULT 0",
             """
+            CREATE TABLE IF NOT EXISTS card_settlements (
+                id SERIAL PRIMARY KEY,
+                authorization_code VARCHAR(64),
+                transaction_id VARCHAR(64),
+                card_number VARCHAR(16) REFERENCES cards(card_number),
+                amount DECIMAL(15,2) NOT NULL,
+                currency VARCHAR(3) NOT NULL,
+                status VARCHAR(20) NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS card_authorizations (
+                authorization_code VARCHAR(64) PRIMARY KEY,
+                account_number VARCHAR(8) NOT NULL,
+                amount DECIMAL(15,2) NOT NULL,
+                currency VARCHAR(3) NOT NULL,
+                transaction_id VARCHAR(64) NOT NULL,
+                merchant_name VARCHAR(255) DEFAULT '',
+                status VARCHAR(20) DEFAULT 'HELD',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """,
         ])
         print("[DB] Tabela 'cards' gotowa.")
+
+    def _row_to_card(self, row: dict) -> Card:
+        return Card(
+            card_number=row["card_number"],
+            account_number=row["account_number"],
+            expiry_date=row["expiry_date"],
+            cvv=row["cvv"],
+            pin_hash=row["pin_hash"],
+            is_active=row["is_active"],
+            card_type=row["card_type"],
+            daily_limit=Money(Decimal(str(row["daily_limit"])), Currency.GBP),
+            card_token=row.get("card_token") or "",
+            gateway_status=row.get("gateway_status") or "REQUESTED",
+            masked_pan=row.get("masked_pan") or "",
+            expiry_month=row.get("expiry_month") or 0,
+            expiry_year=row.get("expiry_year") or 0,
+        )
 
     def get_by_account(self, account_number: str) -> list[Card]:
         conn = psycopg2.connect(self.db_url)
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT * FROM cards WHERE account_number = %s", (account_number,))
+        cursor.execute("SELECT * FROM cards WHERE account_number = %s ORDER BY card_number DESC", (account_number,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
-        return [
-            Card(
-                card_number=row['card_number'], account_number=row['account_number'],
-                expiry_date=row['expiry_date'], cvv=row['cvv'], pin_hash=row['pin_hash'],
-                is_active=row['is_active'], card_type=row['card_type'],
-                daily_limit=Money(Decimal(str(row['daily_limit'])), Currency.GBP)
-            ) for row in rows
-        ]
+        return [self._row_to_card(row) for row in rows]
 
     def get_by_number(self, card_number: str) -> Optional[Card]:
         conn = psycopg2.connect(self.db_url)
@@ -177,32 +221,143 @@ class PostgreSQLCardRepository(CardRepository):
         row = cursor.fetchone()
         cursor.close()
         conn.close()
-        
         if not row:
             return None
-        return Card(
-            card_number=row['card_number'], account_number=row['account_number'],
-            expiry_date=row['expiry_date'], cvv=row['cvv'], pin_hash=row['pin_hash'],
-            is_active=row['is_active'], card_type=row['card_type'],
-            daily_limit=Money(Decimal(str(row['daily_limit'])), Currency.GBP)
+        return self._row_to_card(row)
+
+    def get_by_token(self, card_token: str) -> Optional[Card]:
+        conn = psycopg2.connect(self.db_url)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT * FROM cards WHERE card_token = %s", (card_token,))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if not row:
+            return None
+        return self._row_to_card(row)
+
+    def get_by_authorization_code(self, authorization_code: str) -> Optional[Card]:
+        conn = psycopg2.connect(self.db_url)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            """
+            SELECT c.* FROM cards c
+            JOIN card_settlements s ON s.card_number = c.card_number
+            WHERE s.authorization_code = %s
+            LIMIT 1
+            """,
+            (authorization_code,),
         )
+        row = cursor.fetchone()
+        if not row:
+            cursor.execute(
+                """
+                SELECT c.* FROM cards c
+                WHERE c.account_number = (
+                    SELECT account_number FROM card_authorizations WHERE authorization_code = %s
+                )
+                LIMIT 1
+                """,
+                (authorization_code,),
+            )
+            row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if not row:
+            return None
+        return self._row_to_card(row)
 
     def save(self, card: Card) -> None:
         conn = psycopg2.connect(self.db_url)
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO cards (card_number, account_number, expiry_date, cvv, pin_hash, is_active, card_type, daily_limit)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO cards (
+                card_number, account_number, expiry_date, cvv, pin_hash, is_active,
+                card_type, daily_limit, card_token, gateway_status, masked_pan,
+                expiry_month, expiry_year
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (card_number) DO UPDATE SET
-                is_active = EXCLUDED.is_active, pin_hash = EXCLUDED.pin_hash, daily_limit = EXCLUDED.daily_limit
+                is_active = EXCLUDED.is_active,
+                pin_hash = EXCLUDED.pin_hash,
+                daily_limit = EXCLUDED.daily_limit,
+                card_token = EXCLUDED.card_token,
+                gateway_status = EXCLUDED.gateway_status,
+                masked_pan = EXCLUDED.masked_pan,
+                expiry_month = EXCLUDED.expiry_month,
+                expiry_year = EXCLUDED.expiry_year
         """, (
             card.card_number, card.account_number, card.expiry_date, card.cvv,
-            card.pin_hash, card.is_active, card.card_type, float(card.daily_limit.amount) if card.daily_limit else 1000.00
+            card.pin_hash, card.is_active, card.card_type,
+            float(card.daily_limit.amount) if card.daily_limit else 1000.00,
+            card.card_token or None, card.gateway_status, card.masked_pan,
+            card.expiry_month, card.expiry_year,
         ))
         conn.commit()
         cursor.close()
         conn.close()
-    
+
+    def save_capture(
+        self,
+        authorization_code: str,
+        transaction_id: str,
+        card_number: str,
+        amount: float,
+        currency: str,
+        status: str,
+    ) -> None:
+        conn = psycopg2.connect(self.db_url)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO card_settlements
+                (authorization_code, transaction_id, card_number, amount, currency, status)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (authorization_code, transaction_id, card_number, amount, currency, status),
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+    def save_authorization_hold(
+        self,
+        authorization_code: str,
+        account_number: str,
+        amount: float,
+        currency: str,
+        transaction_id: str,
+        merchant_name: str,
+    ) -> None:
+        conn = psycopg2.connect(self.db_url)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO card_authorizations
+                (authorization_code, account_number, amount, currency, transaction_id, merchant_name, status)
+            VALUES (%s, %s, %s, %s, %s, %s, 'HELD')
+            ON CONFLICT (authorization_code) DO NOTHING
+            """,
+            (authorization_code, account_number, amount, currency, transaction_id, merchant_name),
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+    def save_refund(self, original_transaction_id: str, amount: float, currency: str) -> None:
+        conn = psycopg2.connect(self.db_url)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO card_settlements
+                (authorization_code, transaction_id, card_number, amount, currency, status)
+            VALUES (%s, %s, NULL, %s, %s, 'REFUNDED')
+            """,
+            (f"REFUND-{original_transaction_id}", original_transaction_id, amount, currency),
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
 
 class PostgreSQLAccountRepository(AccountRepository):
     def __init__(self, db_url: str = None):

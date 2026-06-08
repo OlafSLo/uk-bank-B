@@ -17,6 +17,7 @@
         <div class="navbar-nav">
             <a href="/dashboard" class="active">Dashboard</a>
             <a href="/transfer/internal">Przelewy</a>
+            <a href="/karta">Karty</a>
         </div>
         <div class="navbar-user">
             <div class="user-avatar">{{ user.username[0]|upper }}</div>
@@ -51,42 +52,20 @@
                 </div>
                 
                 <hr style="border-color: rgba(255,255,255,0.2); margin: 15px 0;">
-                
-                {% set cards = cards_by_account[acc.id.account_number] %}
-                {% set ns = namespace(has_active=false) %}
-                {% for card in cards %}
-                    {% if card.is_active %}{% set ns.has_active = true %}{% endif %}
-                    <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px; position: relative; margin-bottom: 10px;">
-                        <div style="font-size: 0.8rem; opacity: 0.8; margin-bottom: 5px;">Karta płatnicza ({{ card.card_type|upper }})</div>
-                        <div style="font-family: monospace; font-size: 1.2rem; letter-spacing: 2px; {% if not card.is_active %}text-decoration: line-through; opacity: 0.5;{% endif %}">
-                            {{ card.card_number[:4] }} {{ card.card_number[4:8] }} {{ card.card_number[8:12] }} {{ card.card_number[12:] }}
-                        </div>
-                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-top: 10px;">
-                            <span>EXP: {{ card.expiry_date }}</span>
-                            <span>CVV: {{ card.cvv }}</span>
-                            <span>Limit: £{{ "%.2f"|format(card.daily_limit.amount) if card.daily_limit else "Brak" }}</span>
-                        </div>
-                        {% if card.is_active %}
-                        <div style="margin-top: 15px; text-align: right; position: relative; z-index: 10;">
-                            <button onclick="blockCard('{{ card.card_number }}')" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; font-weight: bold; position: relative; z-index: 50;">Zastrzeż kartę</button>
-                        </div>
-                        {% else %}
-                        <div style="margin-top: 15px; text-align: right;">
-                            <span style="background: #ef4444; color: white; padding: 6px 12px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;">ZABLOKOWANA</span>
-                        </div>
-                        {% endif %}
-                    </div>
-                {% endfor %}
 
-                {% if not ns.has_active %}
-                    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px;">
-                        <p style="font-size: 0.85rem; margin-bottom: 10px;">Brak aktywnej karty płatniczej.</p>
-                        <div style="display: flex; gap: 8px;">
-                            <input type="text" id="pin-{{ acc.id.account_number }}" placeholder="Ustaw PIN (4 cyfry)" maxlength="4" style="width: 130px; padding: 6px; border-radius: 5px; border: none; color: black;">
-                            <button onclick="issueCard('{{ acc.id.sort_code }}', '{{ acc.id.account_number }}')" style="background: var(--accent); color: var(--primary-dark); border: none; font-weight: bold; cursor: pointer; padding: 6px 12px; border-radius: 5px; font-size: 0.85rem;">Wydaj kartę</button>
-                        </div>
-                    </div>
-                {% endif %}
+                {% set cards = cards_by_account[acc.id.account_number] %}
+                {% set active_count = cards|selectattr('is_active')|list|length %}
+                <div class="dashboard-cards-summary">
+                    {% if cards %}
+                        {{ cards|length }} kart(a) · {{ active_count }} aktywna/ych
+                        {% if cards and cards[0].masked_pan %}
+                        <br><span style="opacity:0.85;">{{ cards[0].masked_pan }}</span>
+                        {% endif %}
+                    {% else %}
+                        Brak karty płatniczej
+                    {% endif %}
+                    <br><a href="/karta">Wyrabianie i płatności POS →</a>
+                </div>
             </div>
             {% endfor %}
         </div>
@@ -140,6 +119,18 @@
                         <h4>Panel Juniora</h4>
                         <p>Zarządzaj przelewami dziecka</p>
                         <span class="badge badge-instant" style="background: #ec4899;">Narzędzie</span>
+                    </a>
+                    <a href="/karta" class="transfer-card" style="background: #eff6ff; border-color: #93c5fd;">
+                        <div class="icon">💳</div>
+                        <h4>Karty płatnicze</h4>
+                        <p>Wyrabianie karty i dane do terminalu POS</p>
+                        <span class="badge badge-instant" style="background: #2563eb;">Karty</span>
+                    </a>
+                    <a href="{{ pos_url }}" target="_blank" class="transfer-card" style="background: #f0f9ff; border-color: #7dd3fc;">
+                        <div class="icon">🖥️</div>
+                        <h4>Terminal POS</h4>
+                        <p>Płać kartą w module kart płatniczych</p>
+                        <span class="badge badge-instant" style="background: #0284c7;">POS</span>
                     </a>
                     {% if user.role.value == 'employee' %}
                     <a href="/back-office" class="transfer-card" style="background: #f8fafc; border-color: #cbd5e1;">
@@ -206,60 +197,5 @@
             </div>
         </div>
     </div>
-
-    <script>
-        async function issueCard(sortCode, accountNumber) {
-            const pin = document.getElementById(`pin-${accountNumber}`).value;
-            if(!pin || pin.length !== 4 || isNaN(pin)) {
-                return alert("PIN musi składać się z 4 cyfr!");
-            }
-            
-            const formData = new URLSearchParams();
-            formData.append('sort_code', sortCode);
-            formData.append('account_number', accountNumber);
-            formData.append('pin', pin);
-
-            try {
-                const res = await fetch('/api/cards/issue', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: formData.toString()
-                });
-                const data = await res.json();
-                if(res.ok) {
-                    alert(data.message + " Twój nowy numer to: " + data.card_number);
-                    window.location.reload();
-                } else {
-                    alert("Błąd: " + (data.detail || "Nie udało się wydać karty."));
-                }
-            } catch(e) {
-                alert("Błąd połączenia: " + e.message);
-            }
-        }
-
-        async function blockCard(cardNumber) {
-            if(!confirm("Czy na pewno chcesz bezpowrotnie zastrzec tę kartę? Tego procesu nie można cofnąć!")) return;
-            
-            const formData = new URLSearchParams();
-            formData.append('card_number', cardNumber.replace(/\s+/g, ''));
-
-            try {
-                const res = await fetch('/api/cards/block', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: formData.toString()
-                });
-                const data = await res.json();
-                if(res.ok) {
-                    alert(data.message);
-                    window.location.reload();
-                } else {
-                    alert("Błąd: " + (data.detail || "Nie udało się zastrzec karty."));
-                }
-            } catch(e) {
-                alert("Błąd połączenia: " + e.message);
-            }
-        }
-    </script>
 </body>
 </html>
