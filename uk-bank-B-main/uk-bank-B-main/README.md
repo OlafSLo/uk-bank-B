@@ -14,12 +14,13 @@
 2. [Czego potrzebujesz? (Prerequisites)](#2-czego-potrzebujesz-prerequisites)
 3. [Krok po kroku — uruchomienie](#3-krok-po-kroku--uruchomienie)
 4. [Integracja z modułem kart płatniczych](#4-integracja-z-modułem-kart-płatniczych) ⭐ **NOWOŚĆ**
-5. [Scenariusz prezentacji dla wykładowcy](#5-scenariusz-prezentacji-dla-wykładowcy)
-6. [Jak korzystać z aplikacji?](#6-jak-korzystać-z-aplikacji)
-7. [Dostępne typy przelewów](#7-dostępne-typy-przelewów)
-8. [Wersje języków i narzędzi](#8-wersje-języków-i-narzędzi)
-9. [Problemy i rozwiązania (Troubleshooting)](#9-problemy-i-rozwiązania-troubleshooting)
-10. [Struktura projektu](#10-struktura-projektu)
+5. [Integracja z siecią SWIFT (ISO 20022)](#5-integracja-z-siecią-swift-iso-20022) ⭐ **NOWOŚĆ**
+6. [Scenariusz prezentacji dla wykładowcy](#6-scenariusz-prezentacji-dla-wykładowcy)
+7. [Jak korzystać z aplikacji?](#7-jak-korzystać-z-aplikacji)
+8. [Dostępne typy przelewów](#8-dostępne-typy-przelewów)
+9. [Wersje języków i narzędzi](#9-wersje-języków-i-narzędzi)
+10. [Problemy i rozwiązania (Troubleshooting)](#10-problemy-i-rozwiązania-troubleshooting)
+11. [Struktura projektu](#11-struktura-projektu)
 
 ---
 
@@ -400,7 +401,136 @@ Przykład wyniku udanego testu POS (API):
 
 ---
 
-## 5. Scenariusz prezentacji dla wykładowcy
+## 5. Integracja z siecią SWIFT (ISO 20022)
+
+UK Bank B łączy się z **middleware SWIFT** (symulator sieci międzybankowej)
+z repozytorium: [Jkwasnyy/SWIFT-Aplikacje-Biznesowe](https://github.com/Jkwasnyy/SWIFT-Aplikacje-Biznesowe).
+Integracja jest **tylko po stronie UK Bank B** – modułu SWIFT nie modyfikujemy.
+
+| Parametr | Wartość UK Bank B |
+|----------|-------------------|
+| BIC banku | `UKBKGB01XXX` (Bank UK 1) |
+| Standard komunikatu | ISO 20022 **pacs.008** (XML) |
+| Autoryzacja | OAuth2 `client_credentials` (`test-client` / `test-secret`) |
+| Konto nadawcy (IBAN) | `GB29NWBK60161331926819` |
+| Waluty | GBP / EUR / USD |
+| Opłata banku | 1% kwoty |
+
+### Jak to działa (architektura)
+
+```
+┌──────────────────┐   1. OAuth2 token    ┌────────────────────────┐
+│  UK Bank B GUI   │ ───────────────────► │  Middleware SWIFT      │
+│  /transfer/swift │   2. POST            │  :3000                 │
+└────────┬─────────┘   /swift/message     └───────────┬────────────┘
+         │              (pacs.008 XML)                 │ 3. routing + kolejka
+         │                                              │    (inbox, 5s okno)
+         │  obciążenie konta (kwota + 1%)               ▼
+         │                                  ┌────────────────────────┐
+         │                                  │  Bank odbiorcy /receive │
+         │   ◄───── 5. ACK (callback) ──────│  (mock-bank lub UK B)   │
+         ▼                                  └────────────────────────┘
+   saldo spada                              4. forward po ~5 s
+```
+
+**Wysyłanie (UK Bank B → świat):**
+
+1. Klient wypełnia formularz na `/transfer/swift` (BIC odbiorcy, konto, kwota, waluta, ChrgBr).
+2. Bank loguje się do middleware (`POST /auth/token`) i dostaje token + listę BIC-ów.
+3. Bank buduje komunikat **pacs.008** i wysyła `POST /swift/message` (nagłówek `Authorization: Bearer`).
+4. Middleware waliduje, wyznacza trasę (routing wieloskokowy), liczy opłaty i umieszcza komunikat w kolejce.
+5. Po przyjęciu (202) bank **obciąża konto** (kwota + 1% opłaty) i zwraca `UETR`, trasę i podział opłat.
+6. Forward do banku odbiorcy następuje automatycznie (auto-send wywołuje `POST /api/send/{uetr}`)
+   albo ręcznie z panelu operatora SWIFT.
+
+**Odbieranie (świat → UK Bank B):**
+
+- UK Bank B wystawia endpoint **`POST /receive`** (rola banku odbiorcy w sieci).
+- Middleware forwarduje tam pacs.008 z nagłówkami `X-SWIFT-*`; bank waliduje komunikat,
+  **uznaje konto** w GBP (z przeliczeniem waluty) i odsyła **ACK** na `X-SWIFT-Callback-Url`.
+
+### Endpointy zaimplementowane w UK Bank B
+
+| Endpoint | Opis |
+|----------|------|
+| `POST /api/transfer/swift` | Wysyłka międzynarodowa (tryb sieciowy lub fallback do symulacji) |
+| `POST /receive` (`/swift/receive`) | Odbiór przychodzącego pacs.008 + ACK |
+| `GET /api/swift/status` | Status połączenia z siecią SWIFT (zdrowie + token) |
+| `POST /api/swift/cancel/{uetr}` | Anulowanie przelewu w oknie kolejki |
+
+### Szybki start
+
+**Krok 1 – middleware SWIFT** (osobne repo, bez zmian):
+
+```bash
+git clone https://github.com/Jkwasnyy/SWIFT-Aplikacje-Biznesowe
+cd SWIFT-Aplikacje-Biznesowe
+docker compose up -d --build
+```
+
+Sprawdź: http://localhost:3000 (panel operatora) i http://localhost:3000/docs (Swagger).
+
+**Krok 2 – UK Bank B**:
+
+```bash
+cd uk-bank-B-main/uk-bank-B-main
+docker compose up --build -d
+```
+
+Bank łączy się z middleware przez `host.docker.internal:3000` (zmienne w `docker-compose.yml`).
+
+**Test E2E:**
+
+```bash
+python scripts/test_swift_e2e.py
+```
+
+### Dodawanie przelewu SWIFT – test krok po kroku (GUI)
+
+1. Zaloguj się: http://localhost:8000/login
+2. Wejdź w **Przelewy → SWIFT** lub bezpośrednio http://localhost:8000/transfer/swift
+3. Po prawej zobaczysz **status sieci SWIFT** (zielony = połączono, token OK).
+4. Wybierz **Bank odbiorcy (BIC)** z listy, np. `PLBKPL01XXX` – konto i waluta uzupełnią się automatycznie.
+5. Podaj **kwotę** (£ z konta) i ewentualnie zmień **walutę docelową** oraz **podział opłat (ChrgBr)**.
+6. Kliknij **Wyślij przez SWIFT**.
+7. W wyniku zobaczysz **UETR**, **trasę** (np. `UKBKGB01XXX → PLBKPL01XXX`), kwotę u odbiorcy
+   i obciążenie konta (kwota + 1%).
+8. Odśwież Dashboard – saldo konta spadnie o (kwota + opłata).
+9. Panel operatora SWIFT (http://localhost:3000) pokazuje komunikat w kolejce/zrealizowanych.
+
+### Dostępne banki odbiorcze (z konfiguracji middleware)
+
+| BIC | Bank | Przykładowe konto (open) |
+|-----|------|--------------------------|
+| `PLBKPL01XXX` | Bank Polska 1 | `PL61109010140000071219812874` |
+| `PLBKPL02XXX` | Bank Polska 2 | `PL62109010140000071219812875` |
+| `UKBKGB02XXX` | Bank UK 2 | `GB29NWBK60161331926820` |
+| `USBKUS01XXX` | Bank USA 1 | `US123456789012345678901234` |
+| `USBKUS02XXX` | Bank USA 2 | `US223456789012345678901234` |
+| `DEBKDE01XXX` | Bank EU DE 1 | `DE89370400440532013000` |
+
+### Znany problem (Windows): kontener `mock-banks` restartuje się
+
+Skrypt startowy banków-makiet w repozytorium SWIFT (`scripts/start_mock_banks.sh`) bywa
+zapisany z końcami linii **CRLF**, przez co w kontenerze pojawia się błąd
+`set: Illegal option -` i kontener `mock-banks` wpada w pętlę restartów.
+
+To problem **modułu SWIFT na Windows**, nie UK Bank B. Wysyłka i odbiór po stronie banku
+działają (middleware przyjmuje komunikat i zwraca `UETR`), a brakuje jedynie finalnego
+dostarczenia do banku-makiety. Obejście (w **swoim** klonie repo SWIFT):
+
+```bash
+# zamień CRLF -> LF w skrypcie i przebuduj
+cd SWIFT-Aplikacje-Biznesowe
+sed -i 's/\r$//' scripts/start_mock_banks.sh   # lub: dos2unix scripts/start_mock_banks.sh
+docker compose up -d --build mock-banks
+```
+
+W repozytorium często wystarczy dodać `* text=auto eol=lf` w `.gitattributes`.
+
+---
+
+## 6. Scenariusz prezentacji dla wykładowcy
 
 > **Czas:** ok. 5–7 minut  
 > **Przygotowanie:** uruchom `.\scripts\start-demo.ps1` i otwórz http://localhost:8000/demo-karty
@@ -446,7 +576,7 @@ Wyjaśnij wykładowcy:
 
 ---
 
-## 6. Jak korzystać z aplikacji?
+## 7. Jak korzystać z aplikacji?
 
 ### Rejestracja konta
 
@@ -506,7 +636,7 @@ Kliknij przycisk **"Wyloguj"** w prawym górnym rogu.
 
 ---
 
-## 7. Dostępne typy przelewów
+## 8. Dostępne typy przelewów
 
 ### 🏛️ Przelew Wewnętrzny (On-us Transfer)
 
@@ -560,7 +690,7 @@ Kliknij przycisk **"Wyloguj"** w prawym górnym rogu.
 
 ---
 
-## 8. Wersje języków i narzędzi
+## 9. Wersje języków i narzędzi
 
 | Technologia | Wersja | Uwagi |
 |-------------|--------|-------|
@@ -597,7 +727,31 @@ aiofiles
 
 ---
 
-## 9. Problemy i rozwiązania (Troubleshooting)
+## 10. Problemy i rozwiązania (Troubleshooting)
+
+### SWIFT: status „Sieć SWIFT niedostępna”
+
+**Przyczyna:** Middleware SWIFT nie działa lub bank go nie widzi.
+
+**Rozwiązanie:**
+1. Uruchom middleware: `docker compose up -d --build` w repo SWIFT-Aplikacje-Biznesowe
+2. Sprawdź: http://localhost:3000 oraz http://localhost:3000/docs
+3. Status z banku: `GET http://localhost:8000/api/swift/status`
+4. Test: `python scripts/test_swift_e2e.py`
+
+> Bez middleware przelew SWIFT zadziała w **trybie symulacji** (lokalne obciążenie konta bez sieci).
+
+### SWIFT: przelew „queued” i nie dociera do odbiorcy (Windows)
+
+**Przyczyna:** Kontener `mock-banks` w module SWIFT restartuje się przez końce linii CRLF
+w `scripts/start_mock_banks.sh` (`set: Illegal option -`).
+
+**Rozwiązanie (w swoim klonie repo SWIFT):**
+```bash
+sed -i 's/\r$//' scripts/start_mock_banks.sh   # lub dos2unix
+docker compose up -d --build mock-banks
+```
+Strona banku (wysyłka + `/receive`) działa niezależnie od tego problemu.
 
 ### Karty: „Moduł kart płatniczych jest niedostępny”
 
@@ -725,7 +879,7 @@ docker exec -it uk-bank-b-main-postgres-1 psql -U bank_user -d bank_db
 
 ---
 
-## 10. Struktura projektu
+## 11. Struktura projektu
 
 ```
 uk-bank-B-main/
@@ -743,15 +897,18 @@ uk-bank-B-main/
 │       ├── transfer_bacs.html    # Formularz BACS
 │       ├── transfer_fps.html     # Formularz FPS
 │       ├── transfer_chaps.html   # Formularz CHAPS
-│       └── transfer_swift.html   # Formularz SWIFT
+│       └── transfer_swift.html   # Formularz SWIFT (sieć ISO 20022)
 ├── application/                  # Logika biznesowa (Use Cases)
 │   ├── card_service.py           # Wydawanie kart (Payment Gateway)
 │   ├── card_settlement_service.py # Capture / authorize / refund
+│   ├── swift_network_service.py  # Wysyłka/odbiór SWIFT (pacs.008) + uznanie konta
+│   ├── swift_transfer.py         # Symulacja SWIFT (fallback bez sieci)
 │   ├── auth_service.py           # Rejestracja i logowanie (JWT + bcrypt)
 │   ├── internal_transfer.py      # Przelew wewnętrzny
 │   └── ...
 ├── infrastructure/
 │   ├── card_gateway_client.py    # Klient REST + HMAC do modułu kart
+│   ├── swift_client.py           # Klient middleware SWIFT (OAuth2 + pacs.008)
 │   ├── postgresql_repository.py  # Baza PostgreSQL
 │   └── ...
 ├── scripts/
@@ -759,8 +916,9 @@ uk-bank-B-main/
 │   ├── connect-cards-network.ps1 # Sieć cards-backend (settlement)
 │   ├── demo_test.py              # Test połączenia bank ↔ gateway
 │   ├── test_issue_card.py        # Test wydania karty (HMAC)
-│   └── test_card_e2e.py          # Test E2E: wydanie → POS → settlement
-├── docker-compose.yml            # UK Bank B + sieć cards-backend
+│   ├── test_card_e2e.py          # Test E2E: wydanie → POS → settlement
+│   └── test_swift_e2e.py         # Test E2E: SWIFT wyślij + odbierz
+├── docker-compose.yml            # UK Bank B + integracje (karty, SWIFT)
 ├── Dockerfile                    # Budowa obrazu aplikacji
 └── requirements.txt              # Lista bibliotek Python
 ```
@@ -774,6 +932,7 @@ Gratulacje! 🎉 Uruchomiłeś w pełni funkcjonalny system bankowy z:
 - ✅ Rejestracją i logowaniem (JWT + bcrypt)
 - ✅ 5 typami przelewów (Internal, BACS, FPS, CHAPS, SWIFT)
 - ✅ **Integracją z modułem kart płatniczych (Payment Gateway + POS + settlement)**
+- ✅ **Integracją z siecią SWIFT (ISO 20022 pacs.008, OAuth2, /receive)**
 - ✅ Stroną wyrabiania kart: http://localhost:8000/karta
 - ✅ Graficznym interfejsem użytkownika
 - ✅ Bazą danych PostgreSQL

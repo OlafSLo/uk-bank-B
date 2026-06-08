@@ -18,6 +18,7 @@
             <a href="/dashboard" class="active">Dashboard</a>
             <a href="/transfer/internal">Przelewy</a>
             <a href="/karta">Karty</a>
+            <a href="/integracje">Integracje</a>
         </div>
         <div class="navbar-user">
             <div class="user-avatar">{{ user.username[0]|upper }}</div>
@@ -131,6 +132,12 @@
                         <h4>Terminal POS</h4>
                         <p>Płać kartą w module kart płatniczych</p>
                         <span class="badge badge-instant" style="background: #0284c7;">POS</span>
+                    </a>
+                    <a href="/integracje" class="transfer-card" style="background: #f0fdfa; border-color: #5eead4;">
+                        <div class="icon">🔌</div>
+                        <h4>Integracje</h4>
+                        <p>Status połączeń: karty, SWIFT (HTTP 200)</p>
+                        <span class="badge badge-instant" style="background: #0f766e;">Status</span>
                     </a>
                     {% if user.role.value == 'employee' %}
                     <a href="/back-office" class="transfer-card" style="background: #f8fafc; border-color: #cbd5e1;">

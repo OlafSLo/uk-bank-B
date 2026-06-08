@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Bank B - Integracje</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/dashboard" class="navbar-brand">
+            <div class="logo-icon">UK</div>
+            <span>UK Bank B</span>
+        </a>
+        <div class="navbar-nav">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/transfer/internal">Przelewy</a>
+            <a href="/karta">Karty</a>
+            <a href="/integracje" class="active">Integracje</a>
+        </div>
+        <div class="navbar-user">
+            <div class="user-avatar">{{ user.username[0]|upper }}</div>
+            <span>{{ user.username }}</span>
+            <a href="/logout" class="btn-logout">Wyloguj</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="transfer-hero" style="background: linear-gradient(135deg, #0f766e 0%, #1a3a5c 100%);">
+            <div class="hero-icon">🔌</div>
+            <h2>Status integracji</h2>
+            <p>Połączenia UK Bank B z modułem kart płatniczych i siecią SWIFT</p>
+            <div class="hero-limits">
+                <span id="hero-summary">Sprawdzam...</span>
+            </div>
+        </div>
+
+        <div style="display:flex; gap:0.75rem; align-items:center; margin-bottom:1rem; flex-wrap:wrap;">
+            <button class="btn btn-primary" id="refreshBtn" onclick="loadStatus()">↻ Odśwież status</button>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.9rem; color:var(--text-light);">
+                <input type="checkbox" id="autoRefresh" checked style="width:auto;"> Auto-odświeżanie (5s)
+            </label>
+            <a class="btn btn-secondary" href="{{ swift_dashboard }}" target="_blank">Panel SWIFT ↗</a>
+            <a class="btn btn-secondary" href="{{ pos_url }}" target="_blank">Terminal POS ↗</a>
+        </div>
+
+        <div id="groups"></div>
+    </div>
+
+    <script>
+        let timer = null;
+
+        function badge(check) {
+            const ok = check.ok;
+            const code = check.status !== null && check.status !== undefined ? check.status : '—';
+            const cls = ok ? 'integ-ok' : 'integ-fail';
+            const label = ok ? `HTTP ${code}` : (check.status ? `HTTP ${check.status}` : 'BRAK');
+            return `<span class="integ-badge ${cls}">${ok ? '✓ ' : '✕ '}${label}</span>`;
+        }
+
+        function render(data) {
+            const groups = {};
+            (data.checks || []).forEach(c => {
+                (groups[c.group] = groups[c.group] || []).push(c);
+            });
+
+            const icons = { 'Bank': '🏛️', 'Karty płatnicze': '💳', 'Sieć SWIFT': '🌍' };
+            let html = '';
+            for (const [group, items] of Object.entries(groups)) {
+                const allOk = items.every(i => i.ok);
+                html += `<div class="card" style="margin-bottom:1.25rem;">
+                    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                        <h3>${icons[group] || '🔗'} ${group}</h3>
+                        <span class="integ-badge ${allOk ? 'integ-ok' : 'integ-fail'}">
+                            ${allOk ? 'Wszystko OK' : 'Sprawdź'}
+                        </span>
+                    </div>
+                    <div class="card-body" style="padding:0;">
+                        <table class="integ-table">
+                            <tbody>`;
+                items.forEach(c => {
+                    html += `<tr>
+                        <td class="integ-name">${c.name}</td>
+                        <td class="integ-url"><code>${c.method} ${c.url}</code></td>
+                        <td class="integ-status">${badge(c)}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table></div></div>`;
+            }
+            document.getElementById('groups').innerHTML = html;
+
+            const s = data.summary || { ok: 0, total: 0, all_ok: false };
+            const hero = document.getElementById('hero-summary');
+            hero.textContent = s.all_ok
+                ? `✓ Wszystkie połączenia działają (${s.ok}/${s.total} · HTTP 200)`
+                : `${s.ok}/${s.total} połączeń OK`;
+        }
+
+        async function loadStatus() {
+            const btn = document.getElementById('refreshBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Sprawdzam...';
+            try {
+                const r = await fetch('/api/integrations');
+                const data = await r.json();
+                render(data);
+            } catch (e) {
+                document.getElementById('groups').innerHTML =
+                    `<div class="alert alert-error">Nie udało się pobrać statusu: ${e.message}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '↻ Odśwież status';
+            }
+        }
+
+        function setupAuto() {
+            const chk = document.getElementById('autoRefresh');
+            if (timer) { clearInterval(timer); timer = null; }
+            if (chk.checked) timer = setInterval(loadStatus, 5000);
+        }
+        document.getElementById('autoRefresh').addEventListener('change', setupAuto);
+
+        loadStatus();
+        setupAuto();
+    </script>
+</body>
+</html>

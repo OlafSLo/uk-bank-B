@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,6 +17,7 @@
             <a href="/dashboard">Dashboard</a>
             <a href="/transfer/internal" class="active">Przelewy</a>
             <a href="/karta">Karty</a>
+            <a href="/integracje">Integracje</a>
         </div>
         <div class="navbar-user">
             <div class="user-avatar">{{ user.username[0]|upper }}</div>
@@ -26,15 +27,15 @@
     </nav>
 
     <div class="container">
-        <div class="transfer-hero">
+        <div class="transfer-hero" style="background: linear-gradient(135deg, #1a3a5c 0%, #6d28d9 100%);">
             <div class="hero-icon">🌍</div>
-            <h2>SWIFT Transfer</h2>
-            <p>Międzynarodowy transfer z przewalutowaniem - opłata 1%</p>
+            <h2>SWIFT Transfer (ISO 20022)</h2>
+            <p>Międzynarodowy przelew przez sieć SWIFT · BIC <strong>UKBKGB01XXX</strong></p>
             <div class="hero-limits">
-                <span>✓ Limit: £5,000,000</span>
-                <span>🌍 Międzynarodowy</span>
+                <span>✓ pacs.008 / OAuth2</span>
+                <span>🌍 Routing wieloskokowy</span>
                 <span>💱 GBP / EUR / USD</span>
-                <span>💰 Opłata: 1%</span>
+                <span>💰 Opłata banku 1%</span>
             </div>
         </div>
 
@@ -46,37 +47,67 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Sort Code nadawcy</label>
-                                <input type="text" class="form-control" id="from_sort" value="102030" placeholder="6 cyfr">
+                                <input type="text" class="form-control" id="from_sort" value="102030">
                             </div>
                             <div class="form-group">
                                 <label>Konto nadawcy</label>
-                                <input type="text" class="form-control" id="from_acc" value="11111111" placeholder="8 cyfr">
+                                <input type="text" class="form-control" id="from_acc" value="11111111">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Bank odbiorcy (BIC)</label>
+                            <select class="form-control" id="receiver_bic">
+                                <option value="PLBKPL01XXX" data-acct="PL61109010140000071219812874" data-ccy="EUR">PLBKPL01XXX — Bank Polska 1 (PL)</option>
+                                <option value="PLBKPL02XXX" data-acct="PL62109010140000071219812875" data-ccy="EUR">PLBKPL02XXX — Bank Polska 2 (PL)</option>
+                                <option value="UKBKGB02XXX" data-acct="GB29NWBK60161331926820" data-ccy="GBP">UKBKGB02XXX — Bank UK 2 (GB)</option>
+                                <option value="USBKUS01XXX" data-acct="US123456789012345678901234" data-ccy="USD">USBKUS01XXX — Bank USA 1 (US)</option>
+                                <option value="USBKUS02XXX" data-acct="US223456789012345678901234" data-ccy="USD">USBKUS02XXX — Bank USA 2 (US)</option>
+                                <option value="DEBKDE01XXX" data-acct="DE89370400440532013000" data-ccy="EUR">DEBKDE01XXX — Bank EU DE 1 (DE)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Konto odbiorcy (IBAN / numer)</label>
+                            <input type="text" class="form-control" id="to_acc" value="PL61109010140000071219812874">
+                        </div>
+                        <div class="form-group">
+                            <label>Nazwa odbiorcy</label>
+                            <input type="text" class="form-control" id="receiver_name" value="London Trading Ltd">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Kwota (£ z konta)</label>
+                                <input type="number" class="form-control" id="amount" value="1000.00" step="0.01" min="0.01" max="5000000">
+                            </div>
+                            <div class="form-group">
+                                <label>Waluta docelowa</label>
+                                <select class="form-control" id="to_currency">
+                                    <option value="EUR">EUR (Euro)</option>
+                                    <option value="USD">USD (US Dollar)</option>
+                                    <option value="GBP">GBP (British Pound)</option>
+                                </select>
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
-                                <label>BIC / Sort Code odbiorcy</label>
-                                <input type="text" class="form-control" id="to_sort" value="BOFAUS3N" placeholder="BIC lub sort code">
+                                <label>Podział opłat (ChrgBr)</label>
+                                <select class="form-control" id="charge_bearer">
+                                    <option value="SHAR">SHAR — dzielone</option>
+                                    <option value="DEBT">DEBT — płaci nadawca</option>
+                                    <option value="CRED">CRED — płaci odbiorca</option>
+                                    <option value="SLEV">SLEV — wg schematu</option>
+                                </select>
                             </div>
                             <div class="form-group">
-                                <label>Konto odbiorcy</label>
-                                <input type="text" class="form-control" id="to_acc" value="123456789" placeholder="Nr konta">
+                                <label>Tytuł przelewu</label>
+                                <input type="text" class="form-control" id="remittance" value="Invoice INV-2026-0512">
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label>Kwota (£)</label>
-                            <input type="number" class="form-control" id="amount" value="1000.00" step="0.01" min="0.01" max="5000000" placeholder="0.00">
-                        </div>
-                        <div class="form-group">
-                            <label>Waluta docelowa</label>
-                            <select class="form-control" id="to_currency">
-                                <option value="USD">USD (US Dollar)</option>
-                                <option value="EUR">EUR (Euro)</option>
-                                <option value="GBP">GBP (British Pound)</option>
-                            </select>
+                        <div class="form-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="auto_send" checked style="width:auto;">
+                            <label for="auto_send" style="margin:0;">Automatycznie wyślij z kolejki SWIFT (forward)</label>
                         </div>
                         <button type="submit" class="btn btn-success btn-lg btn-block" id="submitBtn">
-                            Wyślij SWIFT
+                            Wyślij przez SWIFT
                         </button>
                     </form>
 
@@ -88,35 +119,66 @@
             </div>
 
             <div class="card">
-                <div class="card-header"><h3>ℹ️ Informacje</h3></div>
+                <div class="card-header"><h3>ℹ️ Sieć SWIFT</h3></div>
                 <div class="card-body">
+                    <div id="swiftStatus" class="alert alert-info" style="margin-bottom:1rem;">
+                        Sprawdzam status połączenia z siecią SWIFT...
+                    </div>
                     <table class="info-table">
-                        <tr><th>Typ przelewu</th><td>SWIFT (Society for Worldwide Interbank Financial Telecommunication)</td></tr>
-                        <tr><th>Kraje</th><td>Międzynarodowy</td></tr>
-                        <tr><th>Czas realizacji</th><td>1-3 dni robocze</td></tr>
-                        <tr><th>Limit kwoty</th><td>£5,000,000</td></tr>
-                        <tr><th>Opłaty</th><td>1% kwoty</td></tr>
-                        <tr><th>Waluty</th><td>GBP, EUR, USD (z przewalutowaniem)</td></tr>
+                        <tr><th>Nasz BIC</th><td>UKBKGB01XXX (Bank UK 1)</td></tr>
+                        <tr><th>Standard</th><td>ISO 20022 pacs.008</td></tr>
+                        <tr><th>Auth</th><td>OAuth2 (client_credentials)</td></tr>
+                        <tr><th>Limit</th><td>5,000,000</td></tr>
+                        <tr><th>Opłata banku</th><td>1% kwoty</td></tr>
                     </table>
-
-                    <div class="alert alert-info" style="margin-top:1rem;">
-                        <strong>Kursy walut (symulacja):</strong>
-                        <table style="width:100%; margin-top:8px; font-size:0.85rem;">
-                            <tr><td>GBP → EUR</td><td>1.17</td></tr>
-                            <tr><td>GBP → USD</td><td>1.27</td></tr>
-                            <tr><td>EUR → GBP</td><td>0.85</td></tr>
-                            <tr><td>USD → GBP</td><td>0.79</td></tr>
-                        </table>
+                    <div class="alert alert-warning" style="margin-top:1rem;">
+                        <strong>Jak to działa:</strong> bank obciąża konto (kwota + 1%),
+                        buduje komunikat pacs.008, loguje się tokenem i wysyła do middleware.
+                        Komunikat trafia do kolejki i po kilku sekundach jest forwardowany do
+                        banku odbiorcy. UETR pozwala śledzić przelew.
                     </div>
-                    <div class="alert alert-warning" style="margin-top:0.75rem;">
-                        <strong>Przykład:</strong> Wysłanie £1,000 do USA (USD) kosztuje £1,010 z opłatą 1%. Odbiorca otrzyma ~$1,270.
-                    </div>
+                    <a href="#" id="dashboardLink" target="_blank" class="btn btn-primary btn-block" style="margin-top:0.5rem;">
+                        Otwórz panel operatora SWIFT ↗
+                    </a>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        const bicSelect = document.getElementById('receiver_bic');
+        const toAcc = document.getElementById('to_acc');
+        const toCurrency = document.getElementById('to_currency');
+
+        bicSelect.addEventListener('change', () => {
+            const opt = bicSelect.selectedOptions[0];
+            if (opt.dataset.acct) toAcc.value = opt.dataset.acct;
+            if (opt.dataset.ccy) toCurrency.value = opt.dataset.ccy;
+        });
+
+        async function loadSwiftStatus() {
+            const box = document.getElementById('swiftStatus');
+            try {
+                const r = await fetch('/api/swift/status');
+                const d = await r.json();
+                const link = document.getElementById('dashboardLink');
+                if (d.dashboard_url) link.href = d.dashboard_url;
+                if (d.swift_middleware && d.swift_middleware.ok) {
+                    box.className = 'alert alert-success';
+                    box.innerHTML = `✅ Połączono z siecią SWIFT (${d.swift_middleware.url})` +
+                        (d.auth_ok ? ' · token OK' : ' · brak tokenu');
+                } else {
+                    box.className = 'alert alert-error';
+                    box.innerHTML = '⚠️ Sieć SWIFT niedostępna. Uruchom middleware (port 3000). ' +
+                        'Przelew zadziała w trybie symulacji.';
+                }
+            } catch (e) {
+                box.className = 'alert alert-error';
+                box.textContent = 'Nie udało się sprawdzić statusu SWIFT.';
+            }
+        }
+        loadSwiftStatus();
+
         document.getElementById('transferForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
@@ -125,7 +187,7 @@
             const resultTitle = document.getElementById('resultTitle');
 
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span> Przetwarzanie...';
+            btn.innerHTML = '<span class="spinner"></span> Wysyłanie przez SWIFT...';
             resultContainer.classList.remove('show', 'result-success', 'result-error');
 
             try {
@@ -135,18 +197,33 @@
                     body: JSON.stringify({
                         from_sort_code: document.getElementById('from_sort').value,
                         from_account: document.getElementById('from_acc').value,
-                        to_sort_code: document.getElementById('to_sort').value,
-                        to_account: document.getElementById('to_acc').value,
+                        to_sort_code: bicSelect.value,
+                        receiver_bic: bicSelect.value,
+                        to_account: toAcc.value,
+                        receiver_name: document.getElementById('receiver_name').value,
                         amount: document.getElementById('amount').value,
-                        to_currency: document.getElementById('to_currency').value
+                        to_currency: toCurrency.value,
+                        charge_bearer: document.getElementById('charge_bearer').value,
+                        remittance_info: document.getElementById('remittance').value,
+                        use_network: true,
+                        auto_send: document.getElementById('auto_send').checked
                     })
                 });
                 const data = await resp.json();
                 resultContainer.classList.add('show');
                 if (resp.ok) {
                     resultContainer.classList.add('result-success');
-                    resultTitle.textContent = '✅ Sukces!';
-                    resultContent.textContent = JSON.stringify(data, null, 2);
+                    resultTitle.textContent = '✅ Wysłano przez SWIFT';
+                    const route = (data.route || []).join(' → ');
+                    let summary = '';
+                    if (data.uetr) {
+                        summary = `UETR: ${data.uetr}\n` +
+                            `Trasa: ${route || '—'}\n` +
+                            `Odbiorca otrzyma: ~${data.amount_received} ${data.to_currency}\n` +
+                            `Obciążenie konta: £${data.total_debit} (opłata £${data.bank_fee})\n` +
+                            `------------------------------\n`;
+                    }
+                    resultContent.textContent = summary + JSON.stringify(data, null, 2);
                 } else {
                     resultContainer.classList.add('result-error');
                     resultTitle.textContent = '❌ Błąd';
@@ -158,7 +235,7 @@
                 resultContent.textContent = err.message;
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = 'Wyślij SWIFT';
+                btn.innerHTML = 'Wyślij przez SWIFT';
             }
         });
     </script>

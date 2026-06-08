@@ -15,6 +15,12 @@ services:
       CARD_HMAC_SECRET: secret-uk-b-hmac
       CARD_ADMIN_KEY: admin-secret-key-2026
       CARD_ADMIN_PANEL_URL: http://host.docker.internal:3072
+      # Sieć SWIFT (middleware Jkwasnyy na hoście, port 3000)
+      SWIFT_MIDDLEWARE_URL: http://host.docker.internal:3000
+      SWIFT_BANK_BIC: UKBKGB01XXX
+      SWIFT_CLIENT_ID: test-client
+      SWIFT_CLIENT_SECRET: test-secret
+      SWIFT_SENDER_IBAN: GB29NWBK60161331926819
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: always
