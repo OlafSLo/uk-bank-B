@@ -50,3 +50,8 @@ class Card:
     is_active: bool = True
     card_type: str = "debit"
     daily_limit: Money | None = None
+    card_token: str = ""
+    gateway_status: str = "REQUESTED"
+    masked_pan: str = ""
+    expiry_month: int = 0
+    expiry_year: int = 0

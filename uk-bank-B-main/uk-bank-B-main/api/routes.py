@@ -11,10 +11,11 @@ import os
 import random
 
 from domain.value_objects import AccountNumber, Money, Currency
-from domain.entities import Account, User
+from domain.entities import Account, User, Card
 from application.internal_transfer import InternalTransferUseCase
 from application.auth_service import AuthUseCase, AuthService
 from infrastructure.postgresql_repository import PostgreSQLAccountRepository, PostgreSQLUserRepository, PostgreSQLTransactionRepository, PostgreSQLCardRepository
+from infrastructure.card_gateway_client import CardGatewayClient
 from application.bacs_transfer import BACSTransferUseCase
 from application.fps_transfer import FPSTransferUseCase
 from application.chaps_transfer import CHAPSTransferUseCase
@@ -22,6 +23,7 @@ from application.swift_transfer import SWIFTTransferUseCase
 from application.junior_transfer import JuniorTransferUseCase, ApproveJuniorTransferUseCase
 from application.employee_service import EmployeeUseCase
 from application.card_service import CardService
+from application.card_settlement_service import CardSettlementService
 
 
 # --- Globalne komponenty ---
@@ -38,6 +40,8 @@ tx_repo = None
 employee_service = None
 card_repo = None
 card_service = None
+card_settlement_service = None
+card_gateway = None
 
 
 def setup_mock_data(repo: PostgreSQLAccountRepository, auth: AuthUseCase):
@@ -103,7 +107,7 @@ def setup_mock_data(repo: PostgreSQLAccountRepository, auth: AuthUseCase):
 async def lifespan(app: FastAPI):
     global repo, user_repo, auth_service, auth_use_case
     global transfer_service, bacs_service, fps_service, chaps_service, swift_service
-    global tx_repo, employee_service, card_repo, card_service
+    global tx_repo, employee_service, card_repo, card_service, card_settlement_service, card_gateway
 
     repo = PostgreSQLAccountRepository()
     user_repo = PostgreSQLUserRepository()
@@ -118,6 +122,8 @@ async def lifespan(app: FastAPI):
     swift_service = SWIFTTransferUseCase(repo)
     employee_service = EmployeeUseCase(repo)
     card_service = CardService(repo, card_repo)
+    card_settlement_service = CardSettlementService(repo, card_repo)
+    card_gateway = CardGatewayClient()
 
     setup_mock_data(repo, auth_use_case)
     yield
@@ -172,6 +178,27 @@ def register_page(request: Request):
     return templates.TemplateResponse(request, "register.html", {"request": request})
 
 
+def _load_user_accounts():
+    acc1 = repo.get_by_id(AccountNumber("102030", "11111111"))
+    acc2 = repo.get_by_id(AccountNumber("102030", "22222222"))
+    accounts = [a for a in [acc1, acc2] if a]
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        conn = psycopg2.connect(repo.db_url)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT sort_code, account_number FROM accounts WHERE parent_account_number = '11111111'")
+        for row in cursor.fetchall():
+            ja = repo.get_by_id(AccountNumber(row["sort_code"], row["account_number"]))
+            if ja:
+                accounts.append(ja)
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print("Błąd pobierania kont junior:", e)
+    return accounts
+
+
 @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
 def dashboard_page(request: Request):
     user = get_current_user(request)
@@ -181,36 +208,50 @@ def dashboard_page(request: Request):
     if user.role.value == "employee":
         return RedirectResponse(url="/back-office", status_code=302)
 
-    # Pobierz wszystkie konta dla zalogowanego użytkownika (demo: pokazujemy konta testowe)
-    acc1 = repo.get_by_id(AccountNumber("102030", "11111111"))
-    acc2 = repo.get_by_id(AccountNumber("102030", "22222222"))
-    accounts = [a for a in [acc1, acc2] if a]
-
-    # Pobranie kont junior podpiętych pod główne konto 11111111 (Konto Rodzica)
-    try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        conn = psycopg2.connect(repo.db_url)
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT sort_code, account_number FROM accounts WHERE parent_account_number = '11111111'")
-        junior_rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        for row in junior_rows:
-            ja = repo.get_by_id(AccountNumber(row['sort_code'], row['account_number']))
-            if ja: accounts.append(ja)
-    except Exception as e:
-        print("Błąd pobierania kont junior:", e)
-
-    cards_by_account = {}
-    for acc in accounts:
-        cards_by_account[acc.id.account_number] = card_service.get_cards_for_account(acc.id.account_number)
+    accounts = _load_user_accounts()
+    cards_by_account = {
+        acc.id.account_number: card_service.get_cards_for_account(acc.id.account_number)
+        for acc in accounts
+    }
 
     return templates.TemplateResponse(request, "dashboard.html", {
         "request": request,
         "user": user,
         "accounts": accounts,
-        "cards_by_account": cards_by_account
+        "cards_by_account": cards_by_account,
+        "pos_url": os.getenv("CARD_POS_URL", "http://localhost:8072/pos"),
+    })
+
+
+@app.get("/karta", response_class=HTMLResponse, include_in_schema=False)
+def cards_page(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value == "employee":
+        return RedirectResponse(url="/back-office", status_code=302)
+
+    accounts = _load_user_accounts()
+    cards_by_account = {}
+    gateway_balances = {}
+    for acc in accounts:
+        cards = card_service.get_cards_for_account(acc.id.account_number)
+        cards_by_account[acc.id.account_number] = cards
+        for c in cards:
+            if c.card_token:
+                try:
+                    st = card_gateway.get_card_status(c.card_token)
+                    gateway_balances[c.card_token] = st.get("balance", 0)
+                except Exception:
+                    gateway_balances[c.card_token] = None
+
+    return templates.TemplateResponse(request, "cards.html", {
+        "request": request,
+        "user": user,
+        "accounts": accounts,
+        "cards_by_account": cards_by_account,
+        "gateway_balances": gateway_balances,
+        "pos_url": os.getenv("CARD_POS_URL", "http://localhost:8072/pos"),
     })
 
 
@@ -499,15 +540,232 @@ def api_fps_transfer(req: TransferRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/demo-karty", response_class=HTMLResponse, include_in_schema=False)
+def cards_demo_page(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    gateway_url = os.getenv("CARD_GATEWAY_URL", "http://localhost:8072")
+    public_gateway = gateway_url.replace("payment-gateway:8000", "localhost:8072")
+    return templates.TemplateResponse(request, "cards_demo.html", {
+        "request": request,
+        "user": user,
+        "gateway_url": public_gateway,
+        "gateway_docs": f"{public_gateway}/docs",
+        "pos_url": f"{public_gateway}/pos",
+        "admin_panel_url": os.getenv("CARD_ADMIN_PANEL_URL", "http://localhost:3072"),
+    })
+
+
+@app.get("/api/integration/status")
+def integration_status():
+    """Status integracji – do strony demo i monitoringu."""
+    import requests as http_requests
+
+    gateway = card_gateway.health_check() if card_gateway else {"ok": False}
+    public_gateway = gateway.get("url", "http://localhost:8072").replace(
+        "payment-gateway:8000", "localhost:8072"
+    ).replace("host.docker.internal", "localhost")
+    admin_url = os.getenv("CARD_ADMIN_PANEL_URL", "http://localhost:3072").replace(
+        "host.docker.internal", "localhost"
+    )
+
+    pos_ok = admin_ok = False
+    try:
+        pos_ok = http_requests.get(f"{public_gateway}/pos", timeout=4).status_code == 200
+    except Exception:
+        pass
+    try:
+        admin_ok = http_requests.get(admin_url, timeout=4).status_code == 200
+    except Exception:
+        pass
+
+    return {
+        "bank": {"ok": True, "url": "http://localhost:8000"},
+        "card_gateway": gateway,
+        "pos": {"ok": pos_ok, "url": f"{public_gateway}/pos"},
+        "admin_panel": {"ok": admin_ok, "url": admin_url},
+        "integration": {
+            "bank_id": "UK_BANK_B",
+            "api_key": os.getenv("CARD_API_KEY", "bank-key-uk-b"),
+            "bin_prefix": "460001",
+            "currency": "GBP",
+            "capture_endpoint": "POST http://uk-bank-b:8000/capture",
+            "hint": "Uruchom scripts/connect-cards-network.ps1 po starcie modulu kart",
+        },
+    }
+
+
+@app.post("/api/integration/test")
+def integration_test():
+    """Szybki test integracji – do prezentacji na zajęciach."""
+    results = {"steps": []}
+
+    gw = card_gateway.health_check()
+    results["steps"].append({
+        "name": "Payment Gateway dostępny",
+        "ok": gw.get("ok", False),
+        "detail": gw,
+    })
+    if not gw.get("ok"):
+        results["overall"] = "FAIL"
+        return results
+
+    try:
+        issued = card_gateway.issue_card(
+            user_id="demo_test",
+            account_id="11111111",
+            card_type="PREPAID",
+            initial_balance=100.0,
+        )
+        card_gateway.prepare_prepaid_for_payments(issued["card_token"])
+        test_card = Card(
+            card_number=issued["full_pan"],
+            account_number="11111111",
+            expiry_date=f"{issued['expiry_month']:02d}/{issued['expiry_year']}",
+            cvv=issued["cvv"],
+            pin_hash="demo",
+            card_token=issued["card_token"],
+            gateway_status="ACTIVE",
+            masked_pan=issued.get("masked_pan", ""),
+            expiry_month=issued["expiry_month"],
+            expiry_year=issued["expiry_year"],
+        )
+        card_repo.save(test_card)
+        results["steps"].append({
+            "name": "Wydanie karty PREPAID (HMAC)",
+            "ok": True,
+            "detail": {
+                "card_token": issued["card_token"],
+                "masked_pan": issued.get("masked_pan"),
+                "full_pan": issued.get("full_pan"),
+                "cvv": issued.get("cvv"),
+                "expiry": f"{issued.get('expiry_month'):02d}/{issued.get('expiry_year')}",
+            },
+        })
+        capture = card_settlement_service.capture(
+            authorization_code="DEMO-AUTH-TEST",
+            amount=10.0,
+            currency="GBP",
+            card_token=issued["card_token"],
+            transaction_id="demo-tx-001",
+        )
+        results["steps"].append({
+            "name": "Capture (settlement) – obciążenie konta",
+            "ok": capture.get("status") == "SETTLED",
+            "detail": capture,
+        })
+    except Exception as exc:
+        results["steps"].append({"name": "Test end-to-end", "ok": False, "detail": str(exc)})
+
+    results["overall"] = "OK" if all(s["ok"] for s in results["steps"]) else "FAIL"
+    return results
+
+
 # ========================
 #   KARTY PŁATNICZE (API)
 # ========================
 
+class CaptureRequest(BaseModel):
+    authorization_code: str
+    transaction_id: str | None = None
+    amount: float
+    currency: str = "GBP"
+    merchant_id: str | None = None
+    card_token: str | None = None
+
+
+class AuthorizeRequest(BaseModel):
+    account_id: str
+    amount: float
+    currency: str = "GBP"
+    transaction_id: str
+    merchant_name: str | None = None
+
+
+class RefundRequest(BaseModel):
+    account_id: str
+    amount: float
+    currency: str = "GBP"
+    original_transaction_id: str
+
+
+@app.post("/capture")
+@app.post("/api/v1/capture")
+def card_capture(req: CaptureRequest):
+    """Settlement z modułu kart – obciążenie konta klienta."""
+    return card_settlement_service.capture(
+        authorization_code=req.authorization_code,
+        amount=req.amount,
+        currency=req.currency,
+        card_token=req.card_token,
+        transaction_id=req.transaction_id,
+    )
+
+
+@app.post("/api/v1/authorize")
+def card_authorize(req: AuthorizeRequest):
+    """Autoryzacja środków (kontrakt modułu kart – na przyszłość)."""
+    return card_settlement_service.authorize(
+        account_id=req.account_id,
+        amount=req.amount,
+        currency=req.currency,
+        transaction_id=req.transaction_id,
+        merchant_name=req.merchant_name,
+    )
+
+
+@app.post("/refund")
+@app.post("/api/v1/refund")
+def card_refund(req: RefundRequest):
+    return card_settlement_service.refund(
+        account_id=req.account_id,
+        amount=req.amount,
+        currency=req.currency,
+        original_transaction_id=req.original_transaction_id,
+    )
+
+
 @app.post("/api/cards/issue")
-def issue_new_card(sort_code: str = Form(...), account_number: str = Form(...), pin: str = Form(...)):
+def issue_new_card(
+    request: Request,
+    sort_code: str = Form(...),
+    account_number: str = Form(...),
+    pin: str = Form(...),
+):
     try:
-        card = card_service.issue_card(sort_code, account_number, pin)
-        return {"status": "SUCCESS", "message": f"Karta została wydana pomyślnie.", "card_number": card.card_number}
+        user = get_current_user(request)
+        user_id = user.username if user else "customer"
+        card = card_service.issue_card(sort_code, account_number, pin, user_id=user_id)
+        return {
+            "status": "SUCCESS",
+            "message": "Karta wydana przez moduł kart płatniczych (Payment Gateway).",
+            "card_number": card.card_number,
+            "card_token": card.card_token,
+            "masked_pan": card.masked_pan,
+            "expiry_date": card.expiry_date,
+            "expiry_month": card.expiry_month,
+            "expiry_year": card.expiry_year,
+            "cvv": card.cvv,
+            "gateway_status": card.gateway_status,
+            "pos_hint": {
+                "card_number": card.card_number,
+                "expiry_month": card.expiry_month,
+                "expiry_year": card.expiry_year,
+                "cvv": card.cvv,
+                "amount_example": "50.00",
+                "note": "W POS: rok ważności to 2 cyfry (np. 29, NIE 2029). Kwota <= saldo karty.",
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/cards/sync-balance")
+def sync_card_balance(card_token: str = Form(...)):
+    try:
+        new_balance = card_service.sync_card_balance(card_token)
+        return {"status": "SUCCESS", "new_balance": new_balance}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -525,10 +783,14 @@ def get_cards(account_number: str):
     return [
         {
             "card_number": f"**** **** **** {c.card_number[-4:]}",
+            "full_card_number": c.card_number,
             "expiry_date": c.expiry_date,
             "is_active": c.is_active,
             "card_type": c.card_type,
-            "daily_limit": float(c.daily_limit.amount) if c.daily_limit else None
+            "daily_limit": float(c.daily_limit.amount) if c.daily_limit else None,
+            "card_token": c.card_token,
+            "gateway_status": c.gateway_status,
+            "masked_pan": c.masked_pan,
         } for c in cards
     ]
 
@@ -605,10 +867,13 @@ def junior_approve(parent_acc: str, transaction_id: str, approve: bool):
 @app.get("/api/info")
 def api_info():
     return {
-        "name": "UK Bank System API",
+        "name": "UK Bank B System API",
         "status": "running",
         "gui": "/dashboard",
-        "docs": "/docs"
+        "docs": "/docs",
+        "card_gateway": os.getenv("CARD_GATEWAY_URL", "http://localhost:8072"),
+        "card_integration": "UK_BANK_B (BIN 460001, bank-key-uk-b)",
+        "pos_terminal": f"{os.getenv('CARD_GATEWAY_URL', 'http://localhost:8072')}/pos",
     }
 
 
