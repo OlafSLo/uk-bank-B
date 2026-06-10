@@ -17,6 +17,7 @@ from application.auth_service import AuthUseCase, AuthService
 from infrastructure.postgresql_repository import PostgreSQLAccountRepository, PostgreSQLUserRepository, PostgreSQLTransactionRepository, PostgreSQLCardRepository
 from infrastructure.card_gateway_client import CardGatewayClient
 from infrastructure.swift_client import SwiftMiddlewareClient
+from infrastructure.ukps_client import ChapsClient, FpsClient, BacsClient
 from application.swift_network_service import SwiftNetworkService
 from application.bacs_transfer import BACSTransferUseCase
 from application.fps_transfer import FPSTransferUseCase
@@ -46,6 +47,9 @@ card_settlement_service = None
 card_gateway = None
 swift_client = None
 swift_network_service = None
+chaps_ukps_client = None
+fps_ukps_client = None
+bacs_ukps_client = None
 
 
 def setup_mock_data(repo: PostgreSQLAccountRepository, auth: AuthUseCase):
@@ -113,6 +117,7 @@ async def lifespan(app: FastAPI):
     global transfer_service, bacs_service, fps_service, chaps_service, swift_service
     global tx_repo, employee_service, card_repo, card_service, card_settlement_service, card_gateway
     global swift_client, swift_network_service
+    global chaps_ukps_client, fps_ukps_client, bacs_ukps_client
 
     repo = PostgreSQLAccountRepository()
     user_repo = PostgreSQLUserRepository()
@@ -120,10 +125,25 @@ async def lifespan(app: FastAPI):
     card_repo = PostgreSQLCardRepository()
     auth_service = AuthService()
     auth_use_case = AuthUseCase(user_repo, auth_service)
+
+    chaps_ukps_client = ChapsClient()
+    fps_ukps_client = FpsClient()
+    bacs_ukps_client = BacsClient()
+
+    # Automatyczna rejestracja w systemach UKPS
+    bank_name = "UK Bank B"
+    bank_bic = "UKBKGB01XXX"
+    bank_sort = "10-20-30"
+    init_balance = 5000000.00
+    
+    chaps_ukps_client.register(bank_name, bank_bic, bank_sort, init_balance)
+    fps_ukps_client.register(bank_name, bank_bic, bank_sort, init_balance, participant_type="DIRECT", sponsor_bic="")
+    bacs_ukps_client.register(bank_name, bank_bic, bank_sort, init_balance, su_code="123456", is_service_user=True, is_destination_user=True)
+
     transfer_service = InternalTransferUseCase(repo)
-    bacs_service = BACSTransferUseCase(repo)
-    fps_service = FPSTransferUseCase(repo)
-    chaps_service = CHAPSTransferUseCase(repo)
+    bacs_service = BACSTransferUseCase(repo, bacs_ukps_client)
+    fps_service = FPSTransferUseCase(repo, fps_ukps_client)
+    chaps_service = CHAPSTransferUseCase(repo, chaps_ukps_client)
     swift_service = SWIFTTransferUseCase(repo)
     employee_service = EmployeeUseCase(repo)
     card_service = CardService(repo, card_repo)
@@ -494,7 +514,6 @@ class SWIFTTransferRequest(BaseModel):
     use_network: bool = True
     auto_send: bool = True
 
-
 @app.get("/api/account/{sort_code}/{account_number}")
 def api_get_account(sort_code: str, account_number: str):
     """Zwraca dane konta w formacie JSON (dla AJAX w GUI)."""
@@ -535,7 +554,7 @@ def api_bacs_transfer(req: TransferRequest):
             to_account_number=req.to_account,
             amount=money
         )
-        return {"status": "PENDING", "message": result}
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -966,6 +985,16 @@ def api_integrations():
         token_entry["ok"] = False
         token_entry["error"] = str(exc)
     checks.append(token_entry)
+
+    # --- UKPS Services ---
+    group_name = "UK Payment Schemes (UKPS)"
+    chaps_url = os.getenv("UKPS_CHAPS_URL", "http://host.docker.internal:8080")
+    probe("CHAPS Service", group_name, f"{chaps_url}/v1/healthz")
+    fps_url = os.getenv("UKPS_FPS_URL", "http://host.docker.internal:8081")
+    probe("FPS Service", group_name, f"{fps_url}/v1/healthz")
+    bacs_url = os.getenv("UKPS_BACS_URL", "http://host.docker.internal:8082")
+    probe("BACS Service", group_name, f"{bacs_url}/v1/healthz")
+
 
     total = len(checks)
     ok_count = sum(1 for c in checks if c.get("ok"))

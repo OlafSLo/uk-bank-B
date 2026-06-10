@@ -65,7 +65,12 @@
                 (groups[c.group] = groups[c.group] || []).push(c);
             });
 
-            const icons = { 'Bank': '🏛️', 'Karty płatnicze': '💳', 'Sieć SWIFT': '🌍' };
+            const icons = {
+                'Bank': '🏛️',
+                'Karty płatnicze': '💳',
+                'Sieć SWIFT': '🌍',
+                'UK Payment Schemes (UKPS)': '🇬🇧'
+            };
             let html = '';
             for (const [group, items] of Object.entries(groups)) {
                 const allOk = items.every(i => i.ok);
