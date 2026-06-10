@@ -901,6 +901,18 @@ def api_swift_status():
     }
 
 
+@app.get("/api/swift/history")
+def api_swift_history(limit: int = 10):
+    """Ostatnie przelewy SWIFT (UETR + status) zaciągnięte z panelu operatora."""
+    if not swift_client:
+        return {"ok": False, "status_code": 503, "metrics": {}, "transfers": []}
+    try:
+        return swift_client.recent_transfers(limit=limit)
+    except Exception as exc:
+        return {"ok": False, "status_code": 503, "error": str(exc),
+                "metrics": {}, "transfers": []}
+
+
 def _public_url(url: str) -> str:
     return (url or "").replace("payment-gateway:8000", "localhost:8072") \
         .replace("host.docker.internal", "localhost") \
