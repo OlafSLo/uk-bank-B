@@ -501,12 +501,16 @@ python scripts/test_swift_e2e.py
    | Sieć SWIFT | Middleware API, Panel operatora, Swagger, OAuth2 (token) | HTTP 200 |
 
    Strona ma auto-odświeżanie co 5 s oraz przyciski do panelu SWIFT i terminala POS.
+4. Na dole strony jest sekcja **„Ostatnie przelewy SWIFT”** – lista UETR, kierunek
+   (⬆ wychodzący / ⬇ przychodzący), trasa, kwota i status (`completed` / `queued` /
+   `incoming`) zaciągana z panelu operatora. Surowe dane: `curl http://localhost:8000/api/swift/history`.
 
 **Sposób 2 – endpoint JSON (CLI):**
 
 ```bash
 curl http://localhost:8000/api/integrations     # zwraca summary {ok, total, all_ok} + listę checków
 curl http://localhost:8000/api/swift/status      # status samej sieci SWIFT + token
+curl http://localhost:8000/api/swift/history     # ostatnie przelewy SWIFT (UETR + status)
 ```
 
 **Sposób 3 – test automatyczny E2E:**

@@ -246,3 +246,59 @@ class SwiftMiddlewareClient:
         except Exception:
             body = {"raw": resp.text}
         return resp.status_code, body
+
+    # ----- historia / monitoring -----
+    def get_dashboard(self) -> tuple[int, dict[str, Any]]:
+        """Pobiera stan kolejek operatora SWIFT (completed/pending/incoming + metrics)."""
+        for candidate in self._candidates():
+            try:
+                resp = requests.get(f"{candidate}/api/dashboard", timeout=6)
+                if resp.status_code == 200:
+                    self.base_url = candidate
+                    return resp.status_code, resp.json()
+            except requests.RequestException:
+                continue
+        return 503, {"completed": [], "pending": [], "incoming": [], "metrics": {}}
+
+    def recent_transfers(self, limit: int = 10) -> dict[str, Any]:
+        """Zwraca spłaszczoną listę ostatnich przelewów SWIFT (UETR + status + kierunek)."""
+        status_code, data = self.get_dashboard()
+
+        def _norm(item: dict[str, Any], direction: str) -> dict[str, Any]:
+            route = item.get("route") or []
+            return {
+                "uetr": item.get("uetr", ""),
+                "status": item.get("status", ""),
+                "direction": direction,
+                "amount": item.get("amount", ""),
+                "currency": item.get("currency", ""),
+                "sender": item.get("sender", ""),
+                "receiver": item.get("receiver", ""),
+                "route": " → ".join(route) if route else "",
+                "fee_total": item.get("fee_total", ""),
+                "message_id": item.get("message_id", ""),
+                "timestamp": item.get("timestamp", ""),
+            }
+
+        transfers: list[dict[str, Any]] = []
+        for item in data.get("completed", []) or []:
+            transfers.append(_norm(item, "outgoing"))
+        for item in data.get("pending", []) or []:
+            transfers.append(_norm(item, "outgoing"))
+        for item in data.get("incoming", []) or []:
+            transfers.append(_norm(item, "incoming"))
+
+        transfers.sort(key=lambda t: t.get("timestamp", ""), reverse=True)
+
+        metrics = data.get("metrics", {}) or {}
+        return {
+            "ok": status_code == 200,
+            "status_code": status_code,
+            "metrics": {
+                "completed": metrics.get("completed", 0),
+                "pending": metrics.get("pending", 0),
+                "incoming": metrics.get("incoming", 0),
+                "total": len(transfers),
+            },
+            "transfers": transfers[:limit],
+        }
