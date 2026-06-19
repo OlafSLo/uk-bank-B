@@ -1,0 +1,17 @@
+FROM node:20-alpine
+
+ARG KLIK_GIT_URL=https://github.com/MarshallBjorn/KLIK-payments.git
+ARG KLIK_GIT_REF=main
+
+RUN apk add --no-cache git \
+    && git clone --depth 1 --branch "${KLIK_GIT_REF}" "${KLIK_GIT_URL}" /klik-upstream
+
+WORKDIR /klik-upstream/agent
+RUN npm install
+
+ENV VITE_PROXY_TARGET=http://klik-web:8000 \
+    CHOKIDAR_USEPOLLING=true \
+    VITE_ALLOWED_HOSTS=localhost,127.0.0.1
+
+EXPOSE 5175
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5175"]

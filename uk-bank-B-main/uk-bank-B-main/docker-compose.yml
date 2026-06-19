@@ -1,29 +1,75 @@
+# UK Bank B + KLIK-payments — jeden stack na szkolny komputer:
+#   docker compose up --build -d
+#   .\scripts\school-ports.ps1 -Check   # przed startem — czy porty wolne
+#
+# Mapa portow (host): patrz scripts/school-ports.ps1 i README § „Mapa portów”
+#   Bank GUI       http://localhost:8010
+#   KLIK wbud. API http://localhost:8102
+#   KLIK wbud. agent http://localhost:8175  (5175 zostaje dla osobnego KLIK u nich)
+
+x-klik-env: &klik_env
+  DJANGO_SETTINGS_MODULE: core.settings.dev
+  SECRET_KEY: klik-dev-secret-for-school-demo-only-min-50-chars-long
+  DEBUG: "True"
+  ALLOWED_HOSTS: localhost,127.0.0.1,klik-web,web
+  POSTGRES_DB: klik
+  POSTGRES_USER: klik
+  POSTGRES_PASSWORD: klik
+  DATABASE_URL: postgres://klik:klik@klik-db:5432/klik
+  REDIS_URL: redis://klik-redis:6379/0
+  CELERY_BROKER_URL: redis://klik-redis:6379/1
+  CELERY_RESULT_BACKEND: redis://klik-redis:6379/2
+  SORBNET3_URL: http://klik-rtgs:9000/sorbnet3
+  TARGET2_URL: http://klik-rtgs:9000/target2
+  CHAPS_URL: http://klik-rtgs:9000/chaps
+  FEDNOW_URL: http://klik-rtgs:9000/fednow
+  KLIK_CODE_TTL_SECONDS: "120"
+
 services:
   uk-bank-b:
     build: .
     container_name: uk-bank-b
     ports:
-      - "8000:8000"
+      - "${BANK_PORT:-8010}:8000"
     depends_on:
       postgres:
         condition: service_healthy
+      klik-init:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://bank_user:bank_pass@postgres:5432/bank_db
-      # Payment Gateway na hoście (moduł kart: docker compose up, port 8072)
+      BANK_PUBLIC_PORT: ${BANK_PORT:-8010}
       CARD_GATEWAY_URL: http://host.docker.internal:8072
       CARD_API_KEY: bank-key-uk-b
       CARD_HMAC_SECRET: secret-uk-b-hmac
       CARD_ADMIN_KEY: admin-secret-key-2026
       CARD_ADMIN_PANEL_URL: http://host.docker.internal:3072
-      # Sieć SWIFT (middleware Jkwasnyy na hoście, port 3000)
       SWIFT_MIDDLEWARE_URL: http://host.docker.internal:3000
       SWIFT_BANK_BIC: UKBKGB01XXX
       SWIFT_CLIENT_ID: test-client
       SWIFT_CLIENT_SECRET: test-secret
       SWIFT_SENDER_IBAN: GB29NWBK60161331926819
+      UKPS_CHAPS_URL: http://host.docker.internal:8420
+      UKPS_FPS_URL: http://host.docker.internal:8421
+      UKPS_BACS_URL: http://host.docker.internal:8422
+      UKPS_BACS_SU_CODE: "123456"
+      PEER_BANK_API_URL: http://host.docker.internal:8001
+      PEER_BANK_FRONTEND_URL: http://host.docker.internal:5173
+      PEER_BANK_NAME: "Alice Bank (UK Bank A)"
+      PEER_BANK_BIC: SNDRUK22
+      PEER_BANK_UKPS_SORT_CODE: "60-00-00"
+      # KLIK — sieć wewnętrzna Docker (auto-seed w klik-init)
+      KLIK_BASE_URL: http://klik-web:8000/api/v1
+      KLIK_HEALTH_URL: http://klik-web:8000/healthz/
+      KLIK_BANK_API_KEY: klik_dev_uk_bank_b_school_demo
+      KLIK_ZONE: UK
+      KLIK_WEBHOOK_URL: http://uk-bank-b:8000/api/klik/webhook
+      KLIK_AGENT_URL: http://localhost:${KLIK_AGENT_PORT:-8175}
+    volumes:
+      - ./data:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    restart: always
+    restart: unless-stopped
 
   postgres:
     image: postgres:15
@@ -32,7 +78,7 @@ services:
       POSTGRES_PASSWORD: bank_pass
       POSTGRES_DB: bank_db
     ports:
-      - "5438:5432"
+      - "${BANK_DB_PORT:-5438}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -40,7 +86,129 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: always
+    restart: unless-stopped
+
+  # --- KLIK-payments (MarshallBjorn/KLIK-payments) ---
+
+  klik-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: klik
+      POSTGRES_USER: klik
+      POSTGRES_PASSWORD: klik
+    volumes:
+      - klik_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U klik -d klik"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  klik-redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  klik-rtgs:
+    build:
+      context: docker/klik
+      dockerfile: Dockerfile.rtgs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 15s
+    restart: unless-stopped
+
+  klik-web:
+    build:
+      context: docker/klik
+      dockerfile: Dockerfile.backend
+    command: >
+      sh -c "cd /klik-upstream/backend &&
+             python manage.py wait_for_db &&
+             python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "${KLIK_WEB_PORT:-8102}:8000"
+    environment:
+      <<: *klik_env
+    depends_on:
+      klik-db:
+        condition: service_healthy
+      klik-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    restart: unless-stopped
+
+  klik-worker:
+    build:
+      context: docker/klik
+      dockerfile: Dockerfile.backend
+    command: >
+      sh -c "cd /klik-upstream/backend &&
+             python manage.py wait_for_db &&
+             celery -A core worker --loglevel=info"
+    environment:
+      <<: *klik_env
+    depends_on:
+      klik-db:
+        condition: service_healthy
+      klik-redis:
+        condition: service_healthy
+      klik-rtgs:
+        condition: service_healthy
+      klik-web:
+        condition: service_healthy
+    restart: unless-stopped
+
+  klik-agent:
+    build:
+      context: docker/klik
+      dockerfile: Dockerfile.agent
+    ports:
+      - "${KLIK_AGENT_PORT:-8175}:${KLIK_AGENT_PORT:-8175}"
+    environment:
+      KLIK_AGENT_PORT: ${KLIK_AGENT_PORT:-8175}
+    command: >
+      sh -c "npm run dev -- --host 0.0.0.0 --port $$KLIK_AGENT_PORT"
+    depends_on:
+      klik-web:
+        condition: service_healthy
+    restart: unless-stopped
+
+  klik-init:
+    build:
+      context: docker/klik
+      dockerfile: Dockerfile.backend
+    command: >
+      sh -c "cd /klik-upstream/backend &&
+             python manage.py wait_for_db &&
+             python manage.py migrate --noinput &&
+             python /seed/seed_uk_bank.py"
+    environment:
+      <<: *klik_env
+      KLIK_SEED_API_KEY: klik_dev_uk_bank_b_school_demo
+      KLIK_SEED_AGENT_API_KEY: klik_dev_agent_uk_school_demo
+      KLIK_WEBHOOK_URL: http://uk-bank-b:8000/api/klik/webhook
+    volumes:
+      - ./scripts/klik:/seed:ro
+    depends_on:
+      klik-web:
+        condition: service_healthy
+    restart: "no"
 
 volumes:
   postgres_data:
+  klik_db_data:

@@ -3,6 +3,7 @@ from decimal import Decimal
 from datetime import datetime
 from domain.value_objects import AccountNumber, Money
 from domain.repositories import AccountRepository
+from typing import Any
 
 
 @dataclass
@@ -10,6 +11,7 @@ class CHAPSTransferUseCase:
     """CHAPS = Real Time Gross Settlement (RTGS) przez Bank of England."""
     
     account_repository: AccountRepository
+    chaps_client: Any = None
     
     def execute(self, from_account_id: AccountNumber, to_sort_code: str, 
                 to_account_number: str, amount: Money) -> dict:
@@ -35,6 +37,14 @@ class CHAPSTransferUseCase:
         
         # 3. Obciąż nadawcę
         source_account.debit(amount)
+
+        if self.chaps_client:
+            try:
+                res = self.chaps_client.send_payment(from_account_id.sort_code, from_account_id.account_number, to_sort_code, to_account_number, amount.amount)
+            except Exception as e:
+                source_account.credit(amount)
+                raise ValueError(f"Odrzucono przez sieć CHAPS: {e}")
+
         self.account_repository.save(source_account)
         
         # 4. Zwróć response (natychmiastowy)
@@ -46,7 +56,6 @@ class CHAPSTransferUseCase:
             "to_account": to_account_number,
             "amount": float(amount.amount),
             "currency": amount.currency.value,
-            "timestamp": datetime.now().isoformat(),
             "settlement_time": "Natychmiastowy (RTGS)",
             "bank": "Bank of England",
             "message": f"CHAPS transfer {amount.amount} {amount.currency.value} - natychmiastowe rozliczenie przez Bank of England."

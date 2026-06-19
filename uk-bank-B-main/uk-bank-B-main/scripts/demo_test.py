@@ -8,7 +8,7 @@ import time
 
 import requests
 
-BANK_URL = os.getenv("BANK_URL", "http://localhost:8000")
+BANK_URL = os.getenv("BANK_URL", "http://localhost:8010")
 GATEWAY_URL = os.getenv("CARD_GATEWAY_URL", "http://localhost:8072")
 
 

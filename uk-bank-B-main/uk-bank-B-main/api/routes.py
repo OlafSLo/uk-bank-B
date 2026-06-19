@@ -17,6 +17,10 @@ from application.auth_service import AuthUseCase, AuthService
 from infrastructure.postgresql_repository import PostgreSQLAccountRepository, PostgreSQLUserRepository, PostgreSQLTransactionRepository, PostgreSQLCardRepository
 from infrastructure.card_gateway_client import CardGatewayClient
 from infrastructure.swift_client import SwiftMiddlewareClient
+from infrastructure.ukps_client import ChapsClient, FpsClient, BacsClient
+from infrastructure.peer_bank_client import PeerBankClient, peer_bank_config
+from infrastructure.klik_client import KlikClient, klik_config
+from application.klik_service import KlikService
 from application.swift_network_service import SwiftNetworkService
 from application.bacs_transfer import BACSTransferUseCase
 from application.fps_transfer import FPSTransferUseCase
@@ -46,6 +50,12 @@ card_settlement_service = None
 card_gateway = None
 swift_client = None
 swift_network_service = None
+chaps_ukps_client = None
+fps_ukps_client = None
+bacs_ukps_client = None
+peer_bank_client = None
+klik_client = None
+klik_service = None
 
 
 def setup_mock_data(repo: PostgreSQLAccountRepository, auth: AuthUseCase):
@@ -113,6 +123,8 @@ async def lifespan(app: FastAPI):
     global transfer_service, bacs_service, fps_service, chaps_service, swift_service
     global tx_repo, employee_service, card_repo, card_service, card_settlement_service, card_gateway
     global swift_client, swift_network_service
+    global chaps_ukps_client, fps_ukps_client, bacs_ukps_client, peer_bank_client
+    global klik_client, klik_service
 
     repo = PostgreSQLAccountRepository()
     user_repo = PostgreSQLUserRepository()
@@ -120,10 +132,25 @@ async def lifespan(app: FastAPI):
     card_repo = PostgreSQLCardRepository()
     auth_service = AuthService()
     auth_use_case = AuthUseCase(user_repo, auth_service)
+
+    chaps_ukps_client = ChapsClient()
+    fps_ukps_client = FpsClient()
+    bacs_ukps_client = BacsClient()
+
+    # Automatyczna rejestracja w systemach UKPS
+    bank_name = "UK Bank B"
+    bank_bic = "UKBKGB01XXX"
+    bank_sort = "10-20-30"
+    init_balance = 5000000.00
+    
+    chaps_ukps_client.register(bank_name, bank_bic, bank_sort, init_balance)
+    fps_ukps_client.register(bank_name, bank_bic, bank_sort, init_balance, participant_type="DIRECT", sponsor_bic="")
+    bacs_ukps_client.register(bank_name, bank_bic, bank_sort, init_balance, su_code="123456", is_service_user=True, is_destination_user=True)
+
     transfer_service = InternalTransferUseCase(repo)
-    bacs_service = BACSTransferUseCase(repo)
-    fps_service = FPSTransferUseCase(repo)
-    chaps_service = CHAPSTransferUseCase(repo)
+    bacs_service = BACSTransferUseCase(repo, bacs_ukps_client)
+    fps_service = FPSTransferUseCase(repo, fps_ukps_client)
+    chaps_service = CHAPSTransferUseCase(repo, chaps_ukps_client)
     swift_service = SWIFTTransferUseCase(repo)
     employee_service = EmployeeUseCase(repo)
     card_service = CardService(repo, card_repo)
@@ -131,6 +158,9 @@ async def lifespan(app: FastAPI):
     card_gateway = CardGatewayClient()
     swift_client = SwiftMiddlewareClient()
     swift_network_service = SwiftNetworkService(repo, swift_client)
+    peer_bank_client = PeerBankClient()
+    klik_client = KlikClient()
+    klik_service = KlikService(repo, klik_client)
 
     setup_mock_data(repo, auth_use_case)
     yield
@@ -278,7 +308,8 @@ def transfer_page(request: Request, transfer_type: str):
     return templates.TemplateResponse(request, f"transfer_{transfer_type}.html", {
         "request": request,
         "user": user,
-        "transfer_type": transfer_type
+        "transfer_type": transfer_type,
+        "peer_bank": peer_bank_config() if transfer_type in ("bacs", "fps", "chaps") else None,
     })
 
 
@@ -494,7 +525,6 @@ class SWIFTTransferRequest(BaseModel):
     use_network: bool = True
     auto_send: bool = True
 
-
 @app.get("/api/account/{sort_code}/{account_number}")
 def api_get_account(sort_code: str, account_number: str):
     """Zwraca dane konta w formacie JSON (dla AJAX w GUI)."""
@@ -535,7 +565,7 @@ def api_bacs_transfer(req: TransferRequest):
             to_account_number=req.to_account,
             amount=money
         )
-        return {"status": "PENDING", "message": result}
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -596,7 +626,7 @@ def integration_status():
         pass
 
     return {
-        "bank": {"ok": True, "url": "http://localhost:8000"},
+        "bank": {"ok": True, "url": _bank_public_url()},
         "card_gateway": gateway,
         "pos": {"ok": pos_ok, "url": f"{public_gateway}/pos"},
         "admin_panel": {"ok": admin_ok, "url": admin_url},
@@ -875,6 +905,240 @@ def api_swift_cancel(uetr: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/api/ukps/status")
+def api_ukps_status():
+    """Status integracji z UK Payment Systems (CHAPS, FPS, BACS)."""
+    services = {}
+    for name, client in (
+        ("chaps", chaps_ukps_client),
+        ("fps", fps_ukps_client),
+        ("bacs", bacs_ukps_client),
+    ):
+        if client:
+            health = client.health_check()
+            health["url"] = _public_url(health.get("url", ""))
+            services[name] = health
+        else:
+            services[name] = {"ok": False, "registered": False}
+    all_ok = all(s.get("ok") and s.get("registered") for s in services.values())
+    return {
+        "bank": {
+            "name": "UK Bank B",
+            "bic": "UKBKGB01XXX",
+            "sort_code": "10-20-30",
+        },
+        "services": services,
+        "all_ok": all_ok,
+        "docs": "https://github.com/noradenshi/uk-payment-systems/blob/main/docs/integrations/bank_pl.md",
+        "test_accounts": {
+            "barclays": "20-00-00",
+            "hsbc": "40-00-00",
+            "lloyds": "30-00-00",
+            "alice_bank": "60-00-00",
+            "peer_bank": peer_bank_config(),
+        },
+    }
+
+
+@app.get("/api/peer-bank/status")
+def api_peer_bank_status():
+    """Status banku partnerskiego (Alice Bank / uk-bank-system) i dane routingu UKPS."""
+    peer = peer_bank_client.health_check() if peer_bank_client else {"ok": False}
+    ukps_ok = False
+    if fps_ukps_client:
+        ukps_ok = fps_ukps_client.health_check().get("ok", False)
+    cfg = peer_bank_config()
+    return {
+        "peer_bank": peer,
+        "ukps_reachable": ukps_ok,
+        "how_to_send": {
+            "routing": "UKPS (CHAPS / FPS / BACS)",
+            "receiver_sort_code_ukps": cfg["ukps_sort_code"],
+            "receiver_bic": cfg["bic"],
+            "sender_sort_code": "10-20-30",
+            "sender_account": "11111111",
+            "do_not_use_sort_code": cfg["customer_sort_code"],
+            "do_not_use_reason": (
+                f"{cfg['customer_sort_code']} to sort code KONTA KLIENTA w Lyo Bank — "
+                "nie adres banku w UKPS. Wysylaj na 60-00-00 (SNDRUK22)."
+            ),
+            "credit_peer_account": (
+                "U kolegi w .env ustaw UKPS_INBOUND_FALLBACK_ACCOUNT=<numer konta, np. 01246624> "
+                "i zrestartuj kontener ukps-listener. FPS nie niesie numeru konta w UKPS."
+            ),
+        },
+        "ports": _school_ports(),
+        "repo": cfg["repo"],
+    }
+
+
+# ========================
+#   KLIK (płatności mobilne)
+# ========================
+
+class KlikGenerateCodeRequest(BaseModel):
+    sort_code: str = "10-20-30"
+    account_number: str = "11111111"
+
+
+class KlikPinRequest(BaseModel):
+    pin: str = "1234"
+
+
+class KlikAliasRequest(BaseModel):
+    sort_code: str = "10-20-30"
+    account_number: str = "11111111"
+    phone: str
+
+
+class KlikP2PRequest(BaseModel):
+    from_sort_code: str = "10-20-30"
+    from_account: str = "11111111"
+    phone: str
+    amount: Decimal
+
+
+@app.get("/api/klik/status")
+def api_klik_status():
+    status = klik_client.health_check() if klik_client else {"ok": False}
+    cfg = klik_config()
+    return {
+        "klik": status,
+        "zone": cfg["zone"],
+        "webhook_path": "/api/klik/webhook/authorize",
+        "demo_pin": "1234",
+        "demo_accounts": [
+            {"account": "11111111", "user_id": "102030-11111111", "phone_hint": "+447911111111"},
+            {"account": "22222222", "user_id": "102030-22222222", "phone_hint": "+447922222222"},
+        ],
+        "agent_ui": cfg["agent_url"],
+        "demo_agent_api_key": os.getenv(
+            "KLIK_SEED_AGENT_API_KEY", "klik_dev_agent_uk_school_demo"
+        ),
+        "repo": cfg["repo"],
+    }
+
+
+@app.post("/api/klik/webhook/authorize")
+async def klik_webhook_authorize(request: Request):
+    """Webhook wywoływany przez KLIK po /payments/initiate (terminal agenta)."""
+    if not klik_service:
+        raise HTTPException(status_code=503, detail="KLIK service unavailable")
+    try:
+        payload = await request.json()
+        return klik_service.handle_authorize_webhook(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/klik/webhook/ping")
+async def klik_webhook_ping(request: Request):
+    if not klik_service:
+        raise HTTPException(status_code=503, detail="KLIK service unavailable")
+    payload = await request.json()
+    return klik_service.handle_ping_webhook(payload)
+
+
+@app.get("/api/klik/accounts")
+def api_klik_accounts():
+    if not klik_service:
+        raise HTTPException(status_code=503, detail="KLIK service unavailable")
+    return klik_service.list_accounts()
+
+
+@app.post("/api/klik/codes/generate")
+def api_klik_generate_code(req: KlikGenerateCodeRequest):
+    if not klik_service:
+        raise HTTPException(status_code=503, detail="KLIK service unavailable")
+    try:
+        return klik_service.generate_code(req.sort_code, req.account_number)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/klik/pending")
+def api_klik_pending():
+    if not klik_service:
+        raise HTTPException(status_code=503, detail="KLIK service unavailable")
+    return klik_service.list_pending()
+
+
+@app.post("/api/klik/pending/{transaction_id}/accept")
+def api_klik_accept(transaction_id: str, req: KlikPinRequest):
+    if not klik_service:
+        raise HTTPException(status_code=503, detail="KLIK service unavailable")
+    try:
+        return klik_service.accept_payment(transaction_id, req.pin)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.post("/api/klik/pending/{transaction_id}/reject")
+def api_klik_reject(transaction_id: str):
+    if not klik_service:
+        raise HTTPException(status_code=503, detail="KLIK service unavailable")
+    try:
+        return klik_service.reject_payment(transaction_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/klik/alias/register")
+def api_klik_alias_register(req: KlikAliasRequest):
+    if not klik_service:
+        raise HTTPException(status_code=503, detail="KLIK service unavailable")
+    try:
+        return klik_service.register_alias(req.sort_code, req.account_number, req.phone.strip())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.delete("/api/klik/alias")
+def api_klik_alias_remove(req: KlikAliasRequest):
+    if not klik_service:
+        raise HTTPException(status_code=503, detail="KLIK service unavailable")
+    try:
+        return klik_service.remove_alias(req.sort_code, req.account_number, req.phone.strip())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/klik/alias/{sort_code}/{account_number}")
+def api_klik_alias_get(sort_code: str, account_number: str):
+    if not klik_service:
+        raise HTTPException(status_code=503, detail="KLIK service unavailable")
+    alias = klik_service.get_alias(sort_code, account_number)
+    return alias or {"phone": None}
+
+
+@app.post("/api/klik/p2p/send")
+def api_klik_p2p_send(req: KlikP2PRequest):
+    if not klik_service:
+        raise HTTPException(status_code=503, detail="KLIK service unavailable")
+    try:
+        return klik_service.send_p2p(req.from_sort_code, req.from_account, req.phone.strip(), req.amount)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/klik", response_class=HTMLResponse, include_in_schema=False)
+def klik_page(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    cfg = klik_config()
+    return templates.TemplateResponse(request, "klik.html", {
+        "request": request,
+        "user": user,
+        "agent_url": cfg["agent_url"],
+        "zone": cfg["zone"],
+    })
+
+
 @app.get("/api/swift/status")
 def api_swift_status():
     """Status integracji z siecią SWIFT (do GUI i monitoringu)."""
@@ -901,6 +1165,28 @@ def api_swift_status():
     }
 
 
+def _school_ports() -> dict:
+    return {
+        "uk_bank_b": int(os.getenv("BANK_PUBLIC_PORT", os.getenv("BANK_PORT", "8010"))),
+        "peer_bank_api": 8001,
+        "peer_bank_frontend": 5173,
+        "klik_standalone_api": 8000,
+        "klik_standalone_agent": 5175,
+        "klik_embedded_api": int(os.getenv("KLIK_WEB_PORT", "8102")),
+        "klik_embedded_agent": int(os.getenv("KLIK_AGENT_PORT", "8175")),
+        "cards_gateway": 8072,
+        "cards_admin": 3072,
+        "swift_middleware": 3000,
+        "ukps_chaps": 8420,
+        "ukps_fps": 8421,
+        "ukps_bacs": 8422,
+        "postgres_uk_bank_b": int(os.getenv("BANK_DB_PORT", "5438")),
+    }
+
+
+def _bank_public_url(path: str = "") -> str:
+    port = os.getenv("BANK_PUBLIC_PORT", os.getenv("BANK_PORT", "8010"))
+    return f"http://localhost:{port}{path}"
 @app.get("/api/swift/history")
 def api_swift_history(limit: int = 10):
     """Ostatnie przelewy SWIFT (UETR + status) zaciągnięte z panelu operatora."""
@@ -914,9 +1200,11 @@ def api_swift_history(limit: int = 10):
 
 
 def _public_url(url: str) -> str:
+    klik_web = os.getenv("KLIK_WEB_PORT", "8102")
     return (url or "").replace("payment-gateway:8000", "localhost:8072") \
         .replace("host.docker.internal", "localhost") \
-        .replace("swift-app", "localhost")
+        .replace("swift-app", "localhost") \
+        .replace("klik-web:8000", f"localhost:{klik_web}")
 
 
 @app.get("/api/integrations")
@@ -930,15 +1218,16 @@ def api_integrations():
 
     checks: list[dict] = []
 
-    def probe(name: str, group: str, url: str, method: str = "GET"):
+    def probe(name: str, group: str, url: str, method: str = "GET", ok_statuses: tuple[int, ...] | None = None):
         entry = {"name": name, "group": group, "url": _public_url(url), "method": method}
+        allowed = ok_statuses or tuple(range(200, 400))
         try:
             if method == "GET":
                 r = http_requests.get(url, timeout=4)
             else:
                 r = http_requests.request(method, url, timeout=4)
             entry["status"] = r.status_code
-            entry["ok"] = 200 <= r.status_code < 400
+            entry["ok"] = r.status_code in allowed
         except Exception as exc:
             entry["status"] = None
             entry["ok"] = False
@@ -948,7 +1237,7 @@ def api_integrations():
 
     # --- UK Bank B (samo siebie) ---
     checks.append({
-        "name": "UK Bank B API", "group": "Bank", "url": "http://localhost:8000/api/info",
+        "name": "UK Bank B API", "group": "Bank", "url": _bank_public_url("/api/info"),
         "method": "GET", "status": 200, "ok": True,
     })
 
@@ -978,6 +1267,35 @@ def api_integrations():
         token_entry["ok"] = False
         token_entry["error"] = str(exc)
     checks.append(token_entry)
+
+    # --- UKPS Services ---
+    group_name = "UK Payment Schemes (UKPS)"
+    chaps_url = os.getenv("UKPS_CHAPS_URL", "http://host.docker.internal:8420")
+    probe("CHAPS Service", group_name, f"{chaps_url}/v1/healthz")
+    fps_url = os.getenv("UKPS_FPS_URL", "http://host.docker.internal:8421")
+    probe("FPS Service", group_name, f"{fps_url}/v1/healthz")
+    bacs_url = os.getenv("UKPS_BACS_URL", "http://host.docker.internal:8422")
+    probe("BACS Service", group_name, f"{bacs_url}/v1/healthz")
+
+    # --- Bank partnerski (Alice Bank / uk-bank-system) ---
+    peer_group = "Bank partnerski (UK Bank A)"
+    peer_api = os.getenv("PEER_BANK_API_URL", "http://host.docker.internal:8001")
+    peer_fe = os.getenv("PEER_BANK_FRONTEND_URL", "http://host.docker.internal:5173")
+    probe("API banku partnerskiego (Swagger)", peer_group, f"{peer_api}/api/docs/")
+    probe("Frontend banku partnerskiego", peer_group, f"{peer_fe}/login", ok_statuses=(200, 304))
+
+    # --- KLIK-payments ---
+    klik_group = "KLIK (płatności mobilne)"
+    klik_health = os.getenv(
+        "KLIK_HEALTH_URL",
+        f"http://host.docker.internal:{os.getenv('KLIK_WEB_PORT', '8102')}/healthz/",
+    )
+    probe("KLIK API (healthz)", klik_group, klik_health)
+    agent_url = os.getenv(
+        "KLIK_AGENT_URL",
+        f"http://host.docker.internal:{os.getenv('KLIK_AGENT_PORT', '8175')}",
+    )
+    probe("Terminal agenta KLIK", klik_group, agent_url, ok_statuses=(200, 304))
 
     total = len(checks)
     ok_count = sum(1 for c in checks if c.get("ok"))

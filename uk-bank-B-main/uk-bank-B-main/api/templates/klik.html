@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Bank B - KLIK</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        .klik-code { font-size: 2.5rem; font-weight: 800; letter-spacing: 0.35em; font-family: monospace; color: var(--primary); }
+        .pending-item { border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 0.75rem; background: #f8fafc; }
+        .pending-item.expired { opacity: 0.6; }
+        .tab-btn { padding: 0.5rem 1rem; border: none; background: #e2e8f0; border-radius: 8px; cursor: pointer; font-weight: 600; }
+        .tab-btn.active { background: var(--primary); color: white; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/dashboard" class="navbar-brand">
+            <div class="logo-icon">UK</div>
+            <span>UK Bank B</span>
+        </a>
+        <div class="navbar-nav">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/transfer/internal">Przelewy</a>
+            <a href="/karta">Karty</a>
+            <a href="/klik" class="active">KLIK</a>
+            <a href="/integracje">Integracje</a>
+        </div>
+        <div class="navbar-user">
+            <div class="user-avatar">{{ user.username[0]|upper }}</div>
+            <span>{{ user.username }}</span>
+            <a href="/logout" class="btn-logout">Wyloguj</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="transfer-hero" style="background: linear-gradient(135deg, #7c3aed 0%, #1a3a5c 100%);">
+            <div class="hero-icon">📱</div>
+            <h2>KLIK — płatności mobilne</h2>
+            <p>Strefa <strong>{{ zone }}</strong> · integracja z <a href="https://github.com/MarshallBjorn/KLIK-payments" target="_blank" style="color:#e9d5ff;">KLIK-payments</a></p>
+            <div class="hero-limits">
+                <a href="{{ agent_url }}" target="_blank" class="btn btn-secondary" style="margin-top:0.5rem;">Terminal agenta (sklep) ↗</a>
+            </div>
+        </div>
+
+        <div style="display:flex; gap:0.5rem; margin:1rem 0;">
+            <button class="tab-btn active" onclick="showTab('c2b')">Kody C2B</button>
+            <button class="tab-btn" onclick="showTab('p2p')">Telefon P2P</button>
+        </div>
+
+        <div id="tab-c2b">
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-header"><h3>1. Wygeneruj kod KLIK</h3></div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>Konto</label>
+                            <select id="c2bAccount" class="form-control"></select>
+                        </div>
+                        <button class="btn btn-primary btn-block" onclick="generateCode()">Generuj 6-cyfrowy kod</button>
+                        <div id="codeBox" style="margin-top:1rem; text-align:center; display:none;">
+                            <div class="klik-code" id="klikCode">------</div>
+                            <p style="color:var(--text-light); margin-top:0.5rem;">Ważny <span id="codeTtl">120</span>s — wpisz w terminalu agenta</p>
+                        </div>
+                        <div id="codeError" class="alert alert-error" style="display:none; margin-top:1rem;"></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h3>2. Oczekujące autoryzacje</h3></div>
+                    <div class="card-body">
+                        <p style="font-size:0.85rem; color:var(--text-light); margin-bottom:1rem;">
+                            Po wpisaniu kodu w <a href="{{ agent_url }}" target="_blank">terminalu agenta</a> pojawi się tu płatność do zatwierdzenia PIN-em (<code>1234</code>).
+                        </p>
+                        <div id="pendingList"><p style="color:var(--text-light);">Brak oczekujących płatności.</p></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-p2p" style="display:none;">
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-header"><h3>Rejestracja aliasu (telefon → konto)</h3></div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>Konto</label>
+                            <select id="p2pAccount" class="form-control"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Telefon (E.164, np. +447911111111)</label>
+                            <input type="text" id="aliasPhone" class="form-control" placeholder="+447911111111">
+                        </div>
+                        <button class="btn btn-success btn-block" onclick="registerAlias()">Zarejestruj w KLIK</button>
+                        <button class="btn btn-secondary btn-block" style="margin-top:0.5rem;" onclick="removeAlias()">Usuń alias</button>
+                        <div id="aliasStatus" style="margin-top:1rem; font-size:0.9rem;"></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h3>Przelew na telefon</h3></div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>Z konta</label>
+                            <select id="p2pFrom" class="form-control"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Telefon odbiorcy</label>
+                            <input type="text" id="p2pPhone" class="form-control" placeholder="+447922222222">
+                        </div>
+                        <div class="form-group">
+                            <label>Kwota (£)</label>
+                            <input type="number" id="p2pAmount" class="form-control" value="10" step="0.01" min="0.01">
+                        </div>
+                        <button class="btn btn-primary btn-block" onclick="sendP2P()">Wyślij</button>
+                        <div id="p2pResult" style="margin-top:1rem;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let accounts = [];
+        let codeTimer = null;
+
+        function showTab(name) {
+            document.getElementById('tab-c2b').style.display = name === 'c2b' ? 'block' : 'none';
+            document.getElementById('tab-p2p').style.display = name === 'p2p' ? 'block' : 'none';
+            document.querySelectorAll('.tab-btn').forEach((b, i) => {
+                b.classList.toggle('active', (name === 'c2b' && i === 0) || (name === 'p2p' && i === 1));
+            });
+        }
+
+        async function loadAccounts() {
+            const r = await fetch('/api/klik/accounts');
+            accounts = await r.json();
+            const opts = accounts.map(a =>
+                `<option value="${a.account_number}">${a.account_number} — £${a.balance.toFixed(2)}${a.phone ? ' · ' + a.phone : ''}</option>`
+            ).join('');
+            ['c2bAccount', 'p2pAccount', 'p2pFrom'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = opts;
+            });
+            updateAliasStatus();
+        }
+
+        function selectedAccount(selectId) {
+            const num = document.getElementById(selectId).value;
+            return accounts.find(a => a.account_number === num);
+        }
+
+        async function generateCode() {
+            const acc = selectedAccount('c2bAccount');
+            document.getElementById('codeError').style.display = 'none';
+            try {
+                const r = await fetch('/api/klik/codes/generate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ sort_code: acc.sort_code, account_number: acc.account_number })
+                });
+                const data = await r.json();
+                if (!r.ok) throw new Error(data.detail || 'Błąd generowania kodu');
+                document.getElementById('codeBox').style.display = 'block';
+                document.getElementById('klikCode').textContent = data.code;
+                let ttl = data.expires_in || 120;
+                document.getElementById('codeTtl').textContent = ttl;
+                if (codeTimer) clearInterval(codeTimer);
+                codeTimer = setInterval(() => {
+                    ttl--;
+                    document.getElementById('codeTtl').textContent = ttl;
+                    if (ttl <= 0) clearInterval(codeTimer);
+                }, 1000);
+            } catch (e) {
+                const box = document.getElementById('codeError');
+                box.textContent = e.message;
+                box.style.display = 'block';
+            }
+        }
+
+        async function loadPending() {
+            const r = await fetch('/api/klik/pending');
+            const items = await r.json();
+            const box = document.getElementById('pendingList');
+            if (!items.length) {
+                box.innerHTML = '<p style="color:var(--text-light);">Brak oczekujących płatności.</p>';
+                return;
+            }
+            box.innerHTML = items.map(p => `
+                <div class="pending-item">
+                    <strong>${p.merchant_name || 'Merchant'}</strong> — £${p.amount} ${p.currency}
+                    <br><small>Konto: ${p.account_id || p.user_id || '—'} · ${p.seconds_left != null ? p.seconds_left + 's' : ''}</small>
+                    <br><small>Saldo: £${p.client_balance != null ? p.client_balance.toFixed(2) : '—'}
+                    ${p.sufficient_balance === false ? ' <span style="color:#dc2626;">(za mało środków)</span>' : ''}</small>
+                    <div style="margin-top:0.75rem; display:flex; gap:0.5rem;">
+                        <input type="password" id="pin-${p.transaction_id}" placeholder="PIN (1234)" maxlength="4" style="width:100px;" class="form-control">
+                        <button class="btn btn-success" onclick="acceptPayment('${p.transaction_id}')">Akceptuj</button>
+                        <button class="btn btn-secondary" onclick="rejectPayment('${p.transaction_id}')">Odrzuć</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function acceptPayment(txId) {
+            const pin = document.getElementById('pin-' + txId).value || '1234';
+            const r = await fetch('/api/klik/pending/' + txId + '/accept', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ pin })
+            });
+            const data = await r.json();
+            if (!r.ok) alert(data.detail || 'Błąd akceptacji');
+            else { alert('Płatność zaakceptowana. Nowe saldo: £' + data.new_balance); loadPending(); loadAccounts(); }
+        }
+
+        async function rejectPayment(txId) {
+            await fetch('/api/klik/pending/' + txId + '/reject', { method: 'POST' });
+            loadPending();
+        }
+
+        async function updateAliasStatus() {
+            const acc = selectedAccount('p2pAccount');
+            if (!acc) return;
+            const r = await fetch(`/api/klik/alias/${acc.sort_code}/${acc.account_number}`);
+            const data = await r.json();
+            document.getElementById('aliasStatus').innerHTML = data.phone
+                ? `Zarejestrowany alias: <strong>${data.phone}</strong>`
+                : '<span style="color:var(--text-light);">Brak aliasu dla tego konta.</span>';
+            if (data.phone) document.getElementById('aliasPhone').value = data.phone;
+        }
+
+        async function registerAlias() {
+            const acc = selectedAccount('p2pAccount');
+            const phone = document.getElementById('aliasPhone').value.trim();
+            const r = await fetch('/api/klik/alias/register', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ sort_code: acc.sort_code, account_number: acc.account_number, phone })
+            });
+            const data = await r.json();
+            if (!r.ok) alert(data.detail || 'Błąd rejestracji');
+            else { alert('Alias zarejestrowany: ' + phone); loadAccounts(); updateAliasStatus(); }
+        }
+
+        async function removeAlias() {
+            const acc = selectedAccount('p2pAccount');
+            const phone = document.getElementById('aliasPhone').value.trim();
+            const r = await fetch('/api/klik/alias', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ sort_code: acc.sort_code, account_number: acc.account_number, phone })
+            });
+            if (r.ok) { alert('Alias usunięty'); loadAccounts(); updateAliasStatus(); }
+            else { const d = await r.json(); alert(d.detail || 'Błąd'); }
+        }
+
+        async function sendP2P() {
+            const acc = selectedAccount('p2pFrom');
+            const phone = document.getElementById('p2pPhone').value.trim();
+            const amount = parseFloat(document.getElementById('p2pAmount').value);
+            const r = await fetch('/api/klik/p2p/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    from_sort_code: acc.sort_code,
+                    from_account: acc.account_number,
+                    phone,
+                    amount
+                })
+            });
+            const data = await r.json();
+            const box = document.getElementById('p2pResult');
+            if (!r.ok) {
+                box.innerHTML = `<div class="alert alert-error">${data.detail || 'Błąd'}</div>`;
+            } else {
+                box.innerHTML = `<div class="alert alert-success">Wysłano £${data.amount} na ${data.phone}. Saldo: £${data.sender_balance.toFixed(2)}</div>`;
+                loadAccounts();
+            }
+        }
+
+        document.getElementById('p2pAccount')?.addEventListener('change', updateAliasStatus);
+        loadAccounts();
+        loadPending();
+        setInterval(loadPending, 3000);
+    </script>
+</body>
+</html>

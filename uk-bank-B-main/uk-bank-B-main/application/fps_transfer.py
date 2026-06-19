@@ -4,40 +4,12 @@ from datetime import datetime, timedelta
 from domain.exceptions import InsufficientFundsError
 from domain.value_objects import AccountNumber, Money
 from domain.repositories import AccountRepository
-
-class GridlockService:
-    """Mechanizm rozwiązywania zatorów płatniczych (3.0)"""
-    def __init__(self, repository):
-        self.repo = repository
-        self.queue = [] # Prosta kolejka w pamięci (na potrzeby projektu)
-
-    def process_with_gridlock(self, from_acc, to_acc, amount):
-        try:
-            # Próba standardowa
-            from_acc.debit(amount)
-            self.repo.save(from_acc)
-            return "SUCCESS"
-        except InsufficientFundsError:
-            # GRIDLOCK RESOLUTION:
-            # Zamiast błędu, dodajemy do kolejki oczekujących
-            self.queue.append({
-                "from": from_acc.id.account_number,
-                "to": to_acc,
-                "amount": amount,
-                "time": datetime.now()
-            })
-            return "QUEUED_IN_GRIDLOCK"
-
-    def resolve_queue(self):
-        """Próbuje przepchnąć zablokowane płatności po doładowaniu konta"""
-        for tx in self.queue[:]:
-            # Tutaj logika sprawdzająca czy teraz się uda...
-            pass
-
+from typing import Any
 
 @dataclass
 class FPSTransferUseCase:
     account_repository: AccountRepository
+    fps_client: Any = None
     
     def execute(self, from_account_id: AccountNumber, to_sort_code: str, 
                 to_account_number: str, amount: Money) -> dict:
@@ -56,6 +28,14 @@ class FPSTransferUseCase:
         try:
             # 2. Próba obciążenia (Tu zadziała check limitu zadłużenia z encji)
             source_account.debit(amount)
+            
+            if self.fps_client:
+                try:
+                    res = self.fps_client.send_payment(from_account_id.sort_code, from_account_id.account_number, to_sort_code, to_account_number, amount.amount)
+                except Exception as e:
+                    source_account.credit(amount)
+                    raise ValueError(f"Odrzucono przez sieć FPS: {e}")
+
             self.account_repository.save(source_account)
             
             return self._success_response(from_account_id, to_sort_code, to_account_number, amount)

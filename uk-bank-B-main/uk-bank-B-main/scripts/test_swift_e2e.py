@@ -14,7 +14,7 @@ import sys
 
 import requests
 
-BANK_URL = os.getenv("BANK_URL", "http://localhost:8000")
+BANK_URL = os.getenv("BANK_URL", "http://localhost:8010")
 SWIFT_URL = os.getenv("SWIFT_MIDDLEWARE_URL", "http://localhost:3000")
 SORT_CODE = "102030"
 ACCOUNT = "11111111"

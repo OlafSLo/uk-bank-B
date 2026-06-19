@@ -46,7 +46,7 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Sort Code nadawcy</label>
-                                <input type="text" class="form-control" id="from_sort" value="102030" placeholder="6 cyfr">
+                                <input type="text" class="form-control" id="from_sort" value="10-20-30" placeholder="XX-XX-XX">
                             </div>
                             <div class="form-group">
                                 <label>Konto nadawcy</label>
@@ -56,11 +56,11 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Sort Code odbiorcy</label>
-                                <input type="text" class="form-control" id="to_sort" value="998877" placeholder="6 cyfr">
+                                <input type="text" class="form-control" id="to_sort" value="{{ peer_bank.ukps_sort_code if peer_bank else '60-00-00' }}" placeholder="XX-XX-XX">
                             </div>
                             <div class="form-group">
                                 <label>Konto odbiorcy</label>
-                                <input type="text" class="form-control" id="to_acc" value="99999999" placeholder="8 cyfr">
+                                <input type="text" class="form-control" id="to_acc" value="12345678" placeholder="8 cyfr">
                             </div>
                         </div>
                         <div class="form-group">
@@ -90,6 +90,12 @@
                         <tr><th>Opłaty</th><td>~£20-30 za transakcję</td></tr>
                         <tr><th>Waluta</th><td>GBP</td></tr>
                     </table>
+                    <div class="alert alert-info" style="margin-top:1rem;">
+                        <strong>Bank partnerski ({{ peer_bank.name if peer_bank else 'Alice Bank' }}):</strong><br>
+                        Sort: <code>{{ peer_bank.ukps_sort_code if peer_bank else '60-00-00' }}</code> ·
+                        BIC: <code>{{ peer_bank.bic if peer_bank else 'SNDRUK22' }}</code><br>
+                        <small>Nadawca: 10-20-30 / 11111111 · CHAPS przez UKPS (kwoty &gt; £250k).</small>
+                    </div>
                     <div class="alert alert-warning" style="margin-top:1rem;">
                         <strong>CHAPS vs FPS:</strong> CHAPS to system rozliczeń brutto w czasie rzeczywistym (RTGS) zarządzany przez Bank of England. Jest używany do dużych transakcji (powyżej £250,000), gdzie natychmiastowe rozliczenie jest krytyczne, np. przy zakupie nieruchomości.
                     </div>
