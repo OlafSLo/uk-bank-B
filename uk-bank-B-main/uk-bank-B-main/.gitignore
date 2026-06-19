@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 bank.db
+data/ukps_api_keys.json

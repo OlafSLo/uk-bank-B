@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from infrastructure.card_gateway_client import CardGatewayClient
 
-BANK_URL = os.getenv("BANK_URL", "http://localhost:8000")
+BANK_URL = os.getenv("BANK_URL", "http://localhost:8010")
 GATEWAY_URL = os.getenv("CARD_GATEWAY_URL", "http://localhost:8072")
 SORT_CODE = "102030"
 ACCOUNT = "11111111"

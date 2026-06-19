@@ -24,5 +24,11 @@ class Money:
 
 @dataclass(frozen=True)
 class AccountNumber:
-    sort_code: str      # 6 cyfr, np. '123456'
+    sort_code: str      # 6 cyfr, np. '123456' (akceptuje też XX-XX-XX)
     account_number: str # 8 cyfr, np. '12345678'
+
+    def __post_init__(self):
+        sc = self.sort_code.replace("-", "").replace(" ", "").strip()
+        acc = self.account_number.replace("-", "").replace(" ", "").strip()
+        object.__setattr__(self, "sort_code", sc)
+        object.__setattr__(self, "account_number", acc)

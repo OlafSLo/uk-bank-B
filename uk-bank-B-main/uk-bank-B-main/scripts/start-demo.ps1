@@ -56,7 +56,7 @@ docker compose down --remove-orphans 2>$null
 docker compose up --build -d
 if ($LASTEXITCODE -ne 0) { Pop-Location; exit 1 }
 Pop-Location
-Write-Host "      UK Bank B OK (port 8000)" -ForegroundColor Green
+Write-Host "      UK Bank B OK (port 8010)" -ForegroundColor Green
 Start-Sleep -Seconds 5
 
 Write-Host "[3/3] Podlaczenie sieci capture..." -ForegroundColor Yellow
@@ -66,8 +66,8 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  GOTOWE" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Bank:       http://localhost:8000"
-Write-Host "  Demo:       http://localhost:8000/demo-karty"
+Write-Host "  Bank:       http://localhost:8010"
+Write-Host "  Demo:       http://localhost:8010/demo-karty"
 Write-Host "  Terminal:   http://localhost:8072/pos"
 Write-Host "  Test:       python scripts\demo_test.py"
 Write-Host ""

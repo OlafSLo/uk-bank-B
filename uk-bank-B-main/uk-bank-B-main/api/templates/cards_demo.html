@@ -197,7 +197,7 @@ Terminal POS                         Autoryzacja + hold
                                            │
                                            │  POST /capture (co ~30s)
                                            ▼
-                                    UK Bank B :8000  →  debit konta GBP</div>
+                                    UK Bank B :8010  →  debit konta GBP</div>
                 </div>
             </div>
         </div>
@@ -220,7 +220,7 @@ Terminal POS                         Autoryzacja + hold
             try {
                 const res = await fetch('/api/integration/status');
                 const data = await res.json();
-                setStatus('bank', data.bank?.ok, data.bank?.ok ? 'Działa (:8000)' : (data.bank?.error || 'Błąd'));
+                setStatus('bank', data.bank?.ok, data.bank?.ok ? 'Działa (:8010)' : (data.bank?.error || 'Błąd'));
                 setStatus('gateway', data.card_gateway?.ok, data.card_gateway?.ok ? 'Połączony' : (data.card_gateway?.error || 'Brak połączenia'));
                 setStatus('pos', data.pos?.ok, data.pos?.ok ? 'Dostępny' : 'Niedostępny');
                 setStatus('admin', data.admin_panel?.ok, data.admin_panel?.ok ? 'Dostępny' : 'Niedostępny');

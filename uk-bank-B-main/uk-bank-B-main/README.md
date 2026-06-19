@@ -11,16 +11,75 @@
 ## Spis treści
 
 1. [Czym jest ten projekt?](#1-czym-jest-ten-projekt)
-2. [Czego potrzebujesz? (Prerequisites)](#2-czego-potrzebujesz-prerequisites)
-3. [Krok po kroku — uruchomienie](#3-krok-po-kroku--uruchomienie)
-4. [Integracja z modułem kart płatniczych](#4-integracja-z-modułem-kart-płatniczych) ⭐ **NOWOŚĆ**
-5. [Integracja z siecią SWIFT (ISO 20022)](#5-integracja-z-siecią-swift-iso-20022) ⭐ **NOWOŚĆ**
-6. [Scenariusz prezentacji dla wykładowcy](#6-scenariusz-prezentacji-dla-wykładowcy)
-7. [Jak korzystać z aplikacji?](#7-jak-korzystać-z-aplikacji)
-8. [Dostępne typy przelewów](#8-dostępne-typy-przelewów)
-9. [Wersje języków i narzędzi](#9-wersje-języków-i-narzędzi)
-10. [Problemy i rozwiązania (Troubleshooting)](#10-problemy-i-rozwiązania-troubleshooting)
-11. [Struktura projektu](#11-struktura-projektu)
+2. [Mapa portów — sala (każdy po kolei)](#mapa-portów--sala-każdy-po-kolei-na-końcu-wszystko-działa)
+3. [Czego potrzebujesz? (Prerequisites)](#2-czego-potrzebujesz-prerequisites)
+4. [Krok po kroku — uruchomienie](#3-krok-po-kroku--uruchomienie)
+5. [Integracja z modułem kart płatniczych](#4-integracja-z-modułem-kart-płatniczych) ⭐ **NOWOŚĆ**
+6. [Integracja z UK Payment Systems (BACS/FPS/CHAPS)](#5-integracja-z-uk-payment-systems-bacsfpschaps) ⭐ **NOWOŚĆ**
+7. [Integracja z siecią SWIFT (ISO 20022)](#6-integracja-z-siecią-swift-iso-20022) ⭐ **NOWOŚĆ**
+8. [Scenariusz prezentacji dla wykładowcy](#7-scenariusz-prezentacji-dla-wykładowcy)
+9. [Jak korzystać z aplikacji?](#8-jak-korzystać-z-aplikacji)
+10. [Dostępne typy przelewów](#9-dostępne-typy-przelewów)
+11. [Wersje języków i narzędzi](#10-wersje-języków-i-narzędzi)
+12. [Problemy i rozwiązania (Troubleshooting)](#11-problemy-i-rozwiązania-troubleshooting)
+13. [Struktura projektu](#12-struktura-projektu)
+
+---
+
+## Mapa portów — sala: każdy po kolei, na końcu wszystko działa
+
+**Scenariusz:** jeden komputer w sali. Podchodzicie **po kolei** — każdy uruchamia **tylko swoje** repozitorium (`docker compose up`). **Nie zatrzymuj** tego, co odpalili koledzy (`docker compose down` tylko u siebie, na koniec zajęć).
+
+Gdy wszyscy skończą, **wszystkie systemy działają naraz** i można robić przelewy między bankami, KLIK, karty itd.
+
+| Kto | Repo | Porty | Co wpisuje |
+|-----|------|-------|------------|
+| Zespół UKPS | `noradenshi/uk-payment-systems` | 8420, 8421, 8422 | `docker compose -f compose.yml up -d` |
+| Zespół kart | `FilipSl3/Karty-Platnicze…` | 8072, 3072 | `docker compose up -d` |
+| Zespół Alice Bank | `p-poweska/uk-bank-system` | 8001, 5173 | `docker compose up -d` |
+| Zespół SWIFT | `Jkwasnyy/SWIFT-Aplikacje…` | 3000 | `docker compose up -d` |
+| **Ty (UK Bank B)** | **ten projekt** | **8010, 8102, 8175, 5438** | patrz niżej |
+
+Każdy projekt ma **inne porty** — dlatego możecie dokładać kolejne systemy bez kolizji.
+
+> **KLIK:** masz go **wbudowanego** w swój `docker compose` (8102 / 8175). Nie odpalaj osobnego repo KLIK na :8000.
+
+### Twoja kolej — UK Bank B
+
+```powershell
+.\scripts\start-my-bank.ps1
+```
+
+Albo ręcznie:
+
+```powershell
+.\scripts\school-ports.ps1 -Check          # tylko TWOJE porty muszą być wolne
+docker compose up --build -d
+.\scripts\connect-cards-network.ps1        # gdy zespół kart już odpalił moduł
+```
+
+**Sprawdź postęp sali** (co już działa, czego brakuje):
+
+```powershell
+.\scripts\school-ports.ps1 -Status
+```
+
+Gdy wszystkie wiersze = `DZIALA`, pełna integracja: http://localhost:8010/integracje
+
+<details>
+<summary>Opcja: jedna osoba odpala wszystko (start-full-stack.ps1)</summary>
+
+Jeśli ćwiczysz sam w domu, możesz uruchomić cały ekosystem jednym skryptem:
+
+```powershell
+.\scripts\start-full-stack.ps1
+```
+
+Zatrzymanie: `.\scripts\stop-full-stack.ps1`
+
+</details>
+
+Porty można nadpisać w `.env` (`BANK_PORT`, `KLIK_WEB_PORT`, `KLIK_AGENT_PORT`).
 
 ---
 
@@ -39,6 +98,11 @@ różne systemy przelewów używane w Wielkiej Brytanii:
 
 Aplikacja ma **graficzny interfejs użytkownika** (GUI) z formularzami logowania,
 rejestracji i wykonywania przelewów — wszystko dostępne przez przeglądarkę.
+
+**Integracja z UK Payment Systems** (repozytorium kolegów – BACS, FPS, CHAPS):
+- przelewy międzybankowe przez REST API (`noradenshi/uk-payment-systems`),
+- auto-rejestracja banku i klucze API Bearer,
+- konta testowe Barclays/HSBC/Lloyds/Alice Bank.
 
 **Integracja z modułem kart płatniczych** (repozytorium zespołu kart):
 - wydawanie kart przez Payment Gateway (REST + HMAC-SHA256),
@@ -118,21 +182,20 @@ wpisz `cmd` i naciśnij Enter. Otworzy się okno terminala.
 
 ### Krok 3: Uruchom aplikację
 
-W terminalu (upewnij się, że jesteś w folderze `uk-bank-B-main/uk-bank-B-main/`) wpisz:
+**W sali (Twoja kolej — reszta może już działać u kolegów):**
 
-```bash
+```powershell
+.\scripts\start-my-bank.ps1
+```
+
+**Sam w domu (tylko Twój bank + KLIK):**
+
+```powershell
+.\scripts\school-ports.ps1 -Check
 docker compose up --build -d
 ```
 
-> **Wyjaśnienie**: To polecenie:
-> 1. Pobiera obrazy PostgreSQL 15 i Python 3.12 (tylko za pierwszym razem)
-> 2. Buduje obraz aplikacji (instaluje biblioteki)
-> 3. Uruchamia bazę danych PostgreSQL
-> 4. Uruchamia aplikację bankową
-> 5. Robi to wszystko automatycznie — nie musisz nic robić
-
-**Czas oczekiwania**: Za pierwszym razem to może zająć **2-5 minut** (zależy od
-szybkości internetu i komputera). Kolejne uruchomienia będą dużo szybsze.
+> Przy pierwszym buildzie pobiera KLIK z GitHuba (5–15 min). Kolejne starty: ~1–2 min.
 
 ### Krok 4: Sprawdź czy działa
 
@@ -142,11 +205,7 @@ W terminalu wpisz:
 docker ps
 ```
 
-Powinieneś zobaczyć dwa kontenery:
-- `uk-bank-b` — aplikacja bankowa
-- `uk-bank-b-main-postgres-1` (lub podobna nazwa) — baza danych PostgreSQL
-
-Oba powinny mieć status **"Up"** (uruchomione).
+Powinieneś zobaczyć m.in. kontenery `uk-bank-b`, `klik-web`, `klik-agent` ze statusem **Up**.
 
 > **Uwaga:** Sam bank można uruchomić bez modułu kart (tylko przelewy).
 > Aby **karty działały**, wykonaj dodatkowo sekcję [Integracja z modułem kart](#4-integracja-z-modułem-kart-płatniczych).
@@ -156,7 +215,7 @@ Oba powinny mieć status **"Up"** (uruchomione).
 Otwórz przeglądarkę (Chrome, Firefox, Edge) i wpisz w pasku adresu:
 
 ```
-http://localhost:8000
+http://localhost:8010
 ```
 
 Zobaczysz stronę logowania UK Bank B.
@@ -230,13 +289,13 @@ python scripts/test_card_e2e.py
 
 | Serwis | Adres | Opis |
 |--------|-------|------|
-| **UK Bank B (GUI)** | http://localhost:8000 | Logowanie, dashboard, przelewy |
-| **Wyrabianie karty** | http://localhost:8000/karta | Wydanie karty + instrukcja POS |
-| **Strona demo** | http://localhost:8000/demo-karty | Status integracji + szybki test API |
+| **UK Bank B (GUI)** | http://localhost:8010 | Logowanie, dashboard, przelewy |
+| **Wyrabianie karty** | http://localhost:8010/karta | Wydanie karty + instrukcja POS |
+| **Strona demo** | http://localhost:8010/demo-karty | Status integracji + szybki test API |
 | **Terminal POS** | http://localhost:8072/pos | Płatność kartą (symulacja sklepu) |
 | **Swagger kart** | http://localhost:8072/docs | API Payment Gateway |
 | **Panel admina kart** | http://localhost:3072 | admin / admin123 |
-| **Swagger banku** | http://localhost:8000/docs | API UK Bank B (capture, authorize) |
+| **Swagger banku** | http://localhost:8010/docs | API UK Bank B (capture, authorize) |
 
 ### Jak to działa (opis krok po kroku)
 
@@ -321,13 +380,13 @@ Poniższy scenariusz możesz powtórzyć samodzielnie. Przetestowano na działaj
 
 #### Krok 1 – Zaloguj się do banku
 
-1. Otwórz http://localhost:8000/login
+1. Otwórz http://localhost:8010/login
 2. Zaloguj się (lub zarejestruj konto na `/register`).
 3. Na Dashboard zobaczysz konto demo `102030-11111111` ze saldem **£5000**.
 
 #### Krok 2 – Wydaj kartę
 
-1. W menu kliknij **Karty** (adres: http://localhost:8000/karta).
+1. W menu kliknij **Karty** (adres: http://localhost:8010/karta).
 2. W formularzu wybierz konto **102030-11111111**.
 3. Wpisz PIN, np. **`1234`** (dokładnie 4 cyfry).
 4. Kliknij **Wydaj kartę PREPAID**.
@@ -359,14 +418,14 @@ Poniższy scenariusz możesz powtórzyć samodzielnie. Przetestowano na działaj
 #### Krok 4 – Sprawdź settlement (obciążenie konta)
 
 1. Poczekaj ok. **30 sekund** (moduł kart ma skrócony czas settlement w demo).
-2. Odśwież **Dashboard** (http://localhost:8000/dashboard).
+2. Odśwież **Dashboard** (http://localhost:8010/dashboard).
 3. Saldo konta `11111111` powinno spaść o kwotę płatności (np. z £5000 na £4950).
 
 #### Krok 5 – Sync saldo (po wpłacie na konto)
 
 Jeśli zrobiłeś przelew na konto i chcesz zaktualizować limit na karcie PREPAID:
 
-1. Wejdź na http://localhost:8000/karta
+1. Wejdź na http://localhost:8010/karta
 2. Przy karcie kliknij **Sync saldo**
 3. Saldo karty w module kart zrówna się z saldem konta bankowego
 
@@ -377,7 +436,7 @@ Jeśli zrobiłeś przelew na konto i chcesz zaktualizować limit na karcie PREPA
 | `python scripts\demo_test.py` | Sprawdza czy bank i gateway odpowiadają |
 | `python scripts\test_issue_card.py` | Wydaje kartę przez HMAC (tylko gateway) |
 | `python scripts\test_card_e2e.py` | Pełny test: wydanie → POS → settlement |
-| `POST http://localhost:8000/api/integration/test` | Test API (Swagger / demo-karty) |
+| `POST http://localhost:8010/api/integration/test` | Test API (Swagger / demo-karty) |
 
 Przykład wyniku udanego testu POS (API):
 
@@ -401,7 +460,252 @@ Przykład wyniku udanego testu POS (API):
 
 ---
 
-## 5. Integracja z siecią SWIFT (ISO 20022)
+## 5. Integracja z UK Payment Systems (BACS/FPS/CHAPS)
+
+UK Bank B łączy się przez **REST API** z symulatorem brytyjskich systemów płatniczych
+z repozytorium kolegów: [noradenshi/uk-payment-systems](https://github.com/noradenshi/uk-payment-systems).
+Integracja jest **tylko po stronie UK Bank B** – repozytorium UKPS nie modyfikujemy.
+
+| Parametr | Wartość UK Bank B |
+|----------|-------------------|
+| Nazwa banku | `UK Bank B` |
+| BIC | `UKBKGB01XXX` |
+| Sort code | `10-20-30` |
+| CHAPS | port hosta `8420` (lub `8080` w README UKPS) |
+| FPS | port hosta `8421` (lub `8081`) |
+| BACS | port hosta `8422` (lub `8082`) |
+
+Dokumentacja API po stronie UKPS: [Przewodnik integracji bankowej (PL)](https://github.com/noradenshi/uk-payment-systems/blob/main/docs/integrations/bank_pl.md).
+
+### Szybki start (2 kroki)
+
+**Krok 1 – UKPS u kolegów** (osobne repo, bez zmian u nich):
+
+```bash
+git clone https://github.com/noradenshi/uk-payment-systems
+cd uk-payment-systems
+docker compose up -d
+```
+
+Sprawdź health checki (u Ciebie UKPS mapuje porty na **8420/8421/8422**):
+- CHAPS: http://localhost:8420/v1/healthz
+- FPS: http://localhost:8421/v1/healthz
+- BACS: http://localhost:8422/v1/healthz
+
+**Krok 2 – UK Bank B**:
+
+```bash
+cd uk-bank-B-main/uk-bank-B-main
+docker compose up --build -d
+```
+
+Przy starcie bank **automatycznie rejestruje się** w CHAPS, FPS i BACS (`POST /v1/participants/register`)
+i zapisuje klucze API w pliku `data/ukps_api_keys.json` (żeby działało po restarcie).
+
+**Test:**
+
+```bash
+python scripts/test_ukps_e2e.py
+```
+
+### Jak to działa
+
+```
+┌─────────────────┐   Bearer token    ┌──────────────────────┐
+│  UK Bank B GUI  │ ────────────────► │  UKPS (3 usługi)     │
+│  /transfer/fps  │  POST /v1/payments│  :8080 CHAPS         │
+│  /transfer/chaps│                   │  :8081 FPS           │
+│  /transfer/bacs │                   │  :8082 BACS          │
+└────────┬────────┘                   └──────────────────────┘
+         │ obciążenie konta klienta (PostgreSQL)
+         ▼
+   Saldo spada na Dashboard
+```
+
+- **FPS / CHAPS** – JSON `POST /v1/payments/fps` lub `/chaps` z `receiver_bic`, `receiver_sort_code`, `amount`, `msg_id`.
+- **BACS** – plik **Standard 18** (`text/plain`) na `POST /v1/payments/bacs/submit`.
+- BIC nadawcy i klucz API są wyprowadzane z rejestracji – nie trzeba ich podawać w każdym żądaniu.
+
+### Konta testowe w UKPS (banki seed)
+
+| Bank | Sort code | BIC |
+|------|-----------|-----|
+| Barclays | `20-00-00` | `BARCGB2L` |
+| HSBC | `40-00-00` | `HSBCGB44` |
+| Lloyds | `30-00-00` | `LLOYGB21` |
+| Alice Bank | `60-00-00` | `SNDRUK22` |
+
+W formularzach przelewów BACS/FPS/CHAPS wpisz sort code odbiorcy z tabeli (np. `20-00-00` dla Barclays).
+
+### Adresy po uruchomieniu
+
+| Serwis | Adres | Opis |
+|--------|-------|------|
+| **Status integracji** | http://localhost:8010/integracje | CHAPS/FPS/BACS + karty + SWIFT |
+| **API status UKPS** | http://localhost:8010/api/ukps/status | Rejestracja i health checki |
+| **Przelew FPS** | http://localhost:8010/transfer/fps | GUI |
+| **Przelew CHAPS** | http://localhost:8010/transfer/chaps | GUI |
+| **Przelew BACS** | http://localhost:8010/transfer/bacs | GUI |
+
+### Rozwiązywanie problemów
+
+| Problem | Rozwiązanie |
+|---------|-------------|
+| `Brak klucza API` po restarcie | Usuń `data/ukps_api_keys.json` i zrestartuj bank **albo** zresetuj bazy UKPS (`docker compose down -v` w repo UKPS) |
+| `409` przy rejestracji | Bank już istnieje w UKPS – ustaw `UKPS_CHAPS_API_KEY` itd. w `.env` lub zresetuj UKPS |
+| `Connection refused` na 8420–8422 | Uruchom `docker compose up -d` w repozytorium `uk-payment-systems` |
+| BACS odrzucony | Sprawdź format Standard 18 – bank buduje plik automatycznie |
+
+### Integracja z bankiem partnerskim (Alice Bank)
+
+UK Bank B wysyła przelewy do banku kolegi ([p-poweska/uk-bank-system](https://github.com/p-poweska/uk-bank-system)) **przez UKPS** — bez zmian w ich kodzie.
+
+| Parametr | UK Bank B (Ty) | Bank kolegi (Alice Bank) |
+|----------|----------------|--------------------------|
+| Aplikacja | port **8010** | port **8001** (API), **5173** (frontend) |
+| BIC w UKPS | `UKBKGB01XXX` | `SNDRUK22` |
+| Sort code UKPS (odbiorca) | — | **`60-00-00`** |
+| Konto nadawcy (demo) | `10-20-30` / `11111111` | — |
+
+**Mapa portów (bez kolizji):**
+
+| Serwis | Port |
+|--------|------|
+| UK Bank B | **8010** |
+| Bank kolegi (API) | 8001 |
+| Bank kolegi (React) | 5173 |
+| UKPS CHAPS / FPS / BACS | 8420 / 8421 / 8422 |
+| KLIK wbudowany (API / agent) | 8102 / 8175 |
+| PostgreSQL UK Bank B | 5438 |
+
+**Uruchomienie w sali:** każdy zespół odpala swoje repo (patrz [Mapa portów](#mapa-portów--sala-każdy-po-kolei-na-końcu-wszystko-działa)). Ty na końcu: `.\scripts\start-my-bank.ps1`.
+
+**Opcja domowa (jeden skrypt):** `.\scripts\start-full-stack.ps1`
+
+**Ręcznie (4 repozytoria):**
+
+```bash
+# 1. UKPS (wspólna izba)
+cd uk-payment-systems && docker compose up -d
+
+# 2. Bank kolegi (u nich — Ty tylko uruchamiasz lokalnie do testu)
+git clone https://github.com/p-poweska/uk-bank-system
+cd uk-bank-system && docker compose up -d
+
+# 3. Twój bank
+cd uk-bank-B-main/uk-bank-B-main && docker compose up --build -d
+```
+
+**Test przelewu do banku kolegi:**
+
+```bash
+python scripts/test_peer_bank_e2e.py
+```
+
+W GUI: **Przelewy → FPS** (najszybszy), formularz ma domyślnie odbiorcę `60-00-00` (Alice Bank).
+
+> Aby środki **pojawiły się w aplikacji kolegi**, u nich musi działać kontener `ukps-listener` i zmienna `UKPS_INBOUND_FALLBACK_ACCOUNT` (numer konta w ich bazie). To konfigurują sami — Ty tylko wysyłasz przez UKPS.
+
+Status: http://localhost:8010/api/peer-bank/status
+
+---
+
+## 5.1 Integracja z KLIK-payments (płatności mobilne)
+
+UK Bank B łączy się z symulatorem **KLIK** (odpowiednik BLIK) z repozytorium:
+[MarshallBjorn/KLIK-payments](https://github.com/MarshallBjorn/KLIK-payments).
+Integracja jest **tylko po stronie UK Bank B** — repozytorium KLIK nie modyfikujemy.
+
+| Parametr | Wartość |
+|----------|---------|
+| Strefa | `UK` (GBP) |
+| KLIK API (wbudowany) | port hosta **8102** |
+| Terminal agenta (wbudowany) | http://localhost:**8175** |
+| KLIK u nich (osobny Docker) | **8000** / **5175** — nie koliduje z Twoimi portami |
+| Webhook bazy (w KLIK Admin) | `http://uk-bank-b:8000/api/klik/webhook` — KLIK sam dokleja `/authorize` |
+| Endpoint autoryzacji | `POST /api/klik/webhook/authorize` |
+| PIN demo | `1234` |
+| Klucz API banku | `klik_dev_uk_bank_b_school_demo` (auto) |
+| Klucz API agenta (terminal :8175) | `klik_dev_agent_uk_school_demo` (auto) |
+| Konto demo | `10-20-30` / `11111111` (£5000) |
+
+### Moduły
+
+- **C2B (Kody)** — klient generuje 6-cyfrowy kod w `/klik`, agent (terminal) inicjuje płatność, bank autoryzuje PIN-em i wywołuje `POST /payments/confirm` do KLIK.
+- **P2P (Telefony)** — rejestracja aliasu telefon→IBAN w KLIK, lookup przed przelewem na numer telefonu.
+
+### Szybki start (szkoła — jeden Docker)
+
+W folderze `uk-bank-B-main/uk-bank-B-main`:
+
+```powershell
+docker compose up --build -d
+```
+
+Pierwszy build **pobiera KLIK z GitHuba** (potrzebny internet). Kolejne uruchomienia działają offline.
+
+**Ile kontenerów?** Stack uruchamia **8 usług** (9 wpisów w `docker compose`, ale `klik-init` kończy się po sekundzie — rejestracja banku w KLIK):
+
+| Kontener | Po co |
+|----------|--------|
+| `uk-bank-b` | Twój bank |
+| `postgres` | Baza banku |
+| `klik-web` | API KLIK |
+| `klik-worker` | Webhooki płatności (C2B) |
+| `klik-agent` | Terminal sklepu (:8175) |
+| `klik-db` / `klik-redis` / `klik-rtgs` | Baza, kolejka, mock rozliczeń KLIK |
+
+To normalne — KLIK to osobny system (jak UKPS), nie jeden kontener.
+
+| Adres | Opis |
+|-------|------|
+| http://localhost:8010/klik | Bank — kody i P2P |
+| http://localhost:8175 | Terminal agenta (sklep) |
+| http://localhost:8102/admin/ | Panel KLIK (opcjonalnie) |
+
+Klucz API banku, agenta i rejestracja w KLIK są **automatyczne** (`klik-init`).
+
+**Terminal agenta (http://localhost:8175)** — przy pierwszym wejściu wpisz:
+
+| Pole | Wartość |
+|------|---------|
+| Klucz API agenta | `klik_dev_agent_uk_school_demo` |
+| Strefa | **UK** |
+| Base URL | `/api/v1` |
+
+**Flow C2B:**
+
+1. http://localhost:8010/klik → **Generuj kod** (konto `11111111`)
+2. http://localhost:8175 → wpisz kod i kwotę
+3. W `/klik` → **Akceptuj** PIN **`1234`**
+
+Status: http://localhost:8010/api/klik/status
+
+<details>
+<summary>Osobny KLIK u nich na :8000 (bez wbudowanego stacku)</summary>
+
+Uruchom tylko bank + postgres (np. wyłącz usługi `klik-*` albo osobny profil compose).
+W panelu KLIK ustaw webhook:
+
+`http://host.docker.internal:8010/api/klik/webhook`
+
+Bank otwierasz pod **http://localhost:8010** — kolizji z ich KLIK na **8000** nie będzie.
+
+</details>
+
+<details>
+<summary>Stara metoda (osobne repo KLIK + ręczny Admin)</summary>
+
+```powershell
+.\scripts\setup-klik.ps1
+# ... ręczna konfiguracja Django Admin ...
+```
+
+</details>
+
+---
+
+## 6. Integracja z siecią SWIFT (ISO 20022)
 
 UK Bank B łączy się z **middleware SWIFT** (symulator sieci międzybankowej)
 z repozytorium: [Jkwasnyy/SWIFT-Aplikacje-Biznesowe](https://github.com/Jkwasnyy/SWIFT-Aplikacje-Biznesowe).
@@ -487,8 +791,8 @@ python scripts/test_swift_e2e.py
 
 ### Dodawanie przelewu SWIFT – test krok po kroku (GUI)
 
-1. Zaloguj się: http://localhost:8000/login
-2. Wejdź w **Przelewy → SWIFT** lub bezpośrednio http://localhost:8000/transfer/swift
+1. Zaloguj się: http://localhost:8010/login
+2. Wejdź w **Przelewy → SWIFT** lub bezpośrednio http://localhost:8010/transfer/swift
 3. Po prawej zobaczysz **status sieci SWIFT** (zielony = połączono, token OK).
 4. Wybierz **Bank odbiorcy (BIC)** z listy, np. `PLBKPL01XXX` – konto i waluta uzupełnią się automatycznie.
 5. Podaj **kwotę** (£ z konta) i ewentualnie zmień **walutę docelową** oraz **podział opłat (ChrgBr)**.
@@ -530,21 +834,21 @@ W repozytorium często wystarczy dodać `* text=auto eol=lf` w `.gitattributes`.
 
 ---
 
-## 6. Scenariusz prezentacji dla wykładowcy
+## 7. Scenariusz prezentacji dla wykładowcy
 
 > **Czas:** ok. 5–7 minut  
-> **Przygotowanie:** uruchom `.\scripts\start-demo.ps1` i otwórz http://localhost:8000/demo-karty
+> **Przygotowanie:** uruchom `.\scripts\start-demo.ps1` i otwórz http://localhost:8010/demo-karty
 
 ### Krok 1 – Pokaż, że systemy są połączone
 
-1. Otwórz **http://localhost:8000/demo-karty**
+1. Otwórz **http://localhost:8010/demo-karty**
 2. Wszystkie statusy powinny być **zielone**
 3. Kliknij **„Szybki test integracji”** – powinien zwrócić `"overall": "OK"`
 
 ### Krok 2 – Wydaj kartę klientowi
 
-1. Zaloguj się: http://localhost:8000/login (lub zarejestruj konto)
-2. Wejdź na **Karty**: http://localhost:8000/karta
+1. Zaloguj się: http://localhost:8010/login (lub zarejestruj konto)
+2. Wejdź na **Karty**: http://localhost:8010/karta
 3. Wybierz konto demo `11111111` (£5000), PIN `1234` → **Wydaj kartę PREPAID**
 4. Pojawi się okno z **PAN, CVV, datą ważności** – zapisz je (pokazane jednorazowo)
 5. Panel po prawej **„Terminal POS — co wpisać”** ma gotowe wartości (rok **29**, nie 2029)
@@ -576,11 +880,11 @@ Wyjaśnij wykładowcy:
 
 ---
 
-## 7. Jak korzystać z aplikacji?
+## 8. Jak korzystać z aplikacji?
 
 ### Rejestracja konta
 
-1. Wejdź na `http://localhost:8000/register`
+1. Wejdź na `http://localhost:8010/register`
 2. Wpisz **nazwę użytkownika** (np. `jan`)
 3. Wpisz **hasło** (minimum 4 znaki, np. `test123`)
 4. Wybierz **rolę** (zostaw `customer`)
@@ -589,7 +893,7 @@ Wyjaśnij wykładowcy:
 
 ### Logowanie
 
-1. Wejdź na `http://localhost:8000/login`
+1. Wejdź na `http://localhost:8010/login`
 2. Wpisz nazwę użytkownika i hasło
 3. Kliknij **"Zaloguj się"**
 4. Zobaczysz **Dashboard** (stronę główną) z saldami kont
@@ -610,13 +914,13 @@ Domyślnie są dwa konta demo:
 
 Szczegółowy test krok po kroku: sekcja [Dodawanie karty – test krok po kroku (GUI)](#dodawanie-karty--test-krok-po-kroku-gui).
 
-1. Wejdź na http://localhost:8000/karta (menu **Karty**)
+1. Wejdź na http://localhost:8010/karta (menu **Karty**)
 2. Wybierz konto, wpisz **4-cyfrowy PIN** i kliknij **Wydaj kartę PREPAID**
 3. Zapisz **numer karty, CVV i datę ważności** (pokazane jednorazowo)
 4. Użyj panelu **Terminal POS — co wpisać** albo przycisku **Wypełnij POS**
 5. Płać kartą w terminalu: http://localhost:8072/pos (rok ważności: **29**, nie 2029)
 6. Po wpłacie na konto użyj **Sync saldo** na stronie `/karta`
-7. Status integracji: http://localhost:8000/demo-karty
+7. Status integracji: http://localhost:8010/demo-karty
 
 ### Wykonanie przelewu
 
@@ -636,7 +940,7 @@ Kliknij przycisk **"Wyloguj"** w prawym górnym rogu.
 
 ---
 
-## 8. Dostępne typy przelewów
+## 9. Dostępne typy przelewów
 
 ### 🏛️ Przelew Wewnętrzny (On-us Transfer)
 
@@ -690,7 +994,7 @@ Kliknij przycisk **"Wyloguj"** w prawym górnym rogu.
 
 ---
 
-## 9. Wersje języków i narzędzi
+## 10. Wersje języków i narzędzi
 
 | Technologia | Wersja | Uwagi |
 |-------------|--------|-------|
@@ -727,7 +1031,7 @@ aiofiles
 
 ---
 
-## 10. Problemy i rozwiązania (Troubleshooting)
+## 11. Problemy i rozwiązania (Troubleshooting)
 
 ### SWIFT: status „Sieć SWIFT niedostępna”
 
@@ -736,7 +1040,7 @@ aiofiles
 **Rozwiązanie:**
 1. Uruchom middleware: `docker compose up -d --build` w repo SWIFT-Aplikacje-Biznesowe
 2. Sprawdź: http://localhost:3000 oraz http://localhost:3000/docs
-3. Status z banku: `GET http://localhost:8000/api/swift/status`
+3. Status z banku: `GET http://localhost:8010/api/swift/status`
 4. Test: `python scripts/test_swift_e2e.py`
 
 > Bez middleware przelew SWIFT zadziała w **trybie symulacji** (lokalne obciążenie konta bez sieci).
@@ -804,13 +1108,16 @@ cd ../uk-bank-B-main/uk-bank-B-main
 docker compose up --build -d
 ```
 
-### Docker: port 8000 zajęty
+### Docker: port zajęty (8010, 8102, 8175…)
 
 **Rozwiązanie:**
-```bash
+```powershell
+.\scripts\school-ports.ps1 -Check
 docker compose down --remove-orphans
 docker compose up --build -d
 ```
+
+Poprzednia osoba mogła zostawić kontenery — `docker compose down` w **każdym** uruchomionym repo.
 
 ### Moduł kart na hoście, bank w Dockerze (Windows)
 
@@ -827,9 +1134,9 @@ docker compose -f docker-compose.yml -f docker-compose.local-cards.yml up --buil
 **Rozwiązanie**:
 1. Sprawdź czy Docker Desktop jest **uruchomiony** (zielony pasek)
 2. Spróbuj zrestartować Docker Desktop
-3. Sprawdź czy port 8000 nie jest zajęty:
+3. Sprawdź czy port 8010 nie jest zajęty:
    ```bash
-   netstat -ano | findstr :8000
+   netstat -ano | findstr :8010
    ```
 4. Jeśli port jest zajęty, zatrzymaj program go używający
 
@@ -853,11 +1160,11 @@ docker compose -f docker-compose.yml -f docker-compose.local-cards.yml up --buil
 
 ### Błąd "Port already allocated"
 
-**Problem**: Port 8000 lub 5432 jest już zajęty.
+**Problem**: Port 8010 lub 5432 jest już zajęty.
 
 **Rozwiązanie**:
-1. Znajdź proces: `netstat -ano | findstr :8000`
-2. Zatrzymaj go lub zmień port w `docker-compose.yml`
+1. Znajdź proces: `netstat -ano | findstr :8010`
+2. Zatrzymaj go lub zmień `BANK_PORT` w `.env` / `docker-compose.yml`
 
 ### Jak zobaczyć logi aplikacji?
 
@@ -879,7 +1186,7 @@ docker exec -it uk-bank-b-main-postgres-1 psql -U bank_user -d bank_db
 
 ---
 
-## 11. Struktura projektu
+## 12. Struktura projektu
 
 ```
 uk-bank-B-main/
@@ -933,13 +1240,13 @@ Gratulacje! 🎉 Uruchomiłeś w pełni funkcjonalny system bankowy z:
 - ✅ 5 typami przelewów (Internal, BACS, FPS, CHAPS, SWIFT)
 - ✅ **Integracją z modułem kart płatniczych (Payment Gateway + POS + settlement)**
 - ✅ **Integracją z siecią SWIFT (ISO 20022 pacs.008, OAuth2, /receive)**
-- ✅ Stroną wyrabiania kart: http://localhost:8000/karta
+- ✅ Stroną wyrabiania kart: http://localhost:8010/karta
 - ✅ Graficznym interfejsem użytkownika
 - ✅ Bazą danych PostgreSQL
-- ✅ Stroną demo do prezentacji: http://localhost:8000/demo-karty
+- ✅ Stroną demo do prezentacji: http://localhost:8010/demo-karty
 
-**Aplikacja dostępna pod adresem:** http://localhost:8000
+**Aplikacja dostępna pod adresem:** http://localhost:8010
 
-**Demo kart (prezentacja):** http://localhost:8000/demo-karty
+**Demo kart (prezentacja):** http://localhost:8010/demo-karty
 
-**Dokumentacja API (dla programistów):** http://localhost:8000/docs
+**Dokumentacja API (dla programistów):** http://localhost:8010/docs

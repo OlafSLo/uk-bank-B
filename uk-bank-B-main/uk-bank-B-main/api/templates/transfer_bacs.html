@@ -46,7 +46,7 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Sort Code nadawcy</label>
-                                <input type="text" class="form-control" id="from_sort" value="102030" placeholder="6 cyfr">
+                                <input type="text" class="form-control" id="from_sort" value="10-20-30" placeholder="XX-XX-XX">
                             </div>
                             <div class="form-group">
                                 <label>Konto nadawcy</label>
@@ -56,11 +56,11 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Sort Code odbiorcy</label>
-                                <input type="text" class="form-control" id="to_sort" value="300000" placeholder="6 cyfr">
+                                <input type="text" class="form-control" id="to_sort" value="{{ peer_bank.ukps_sort_code if peer_bank else '60-00-00' }}" placeholder="XX-XX-XX">
                             </div>
                             <div class="form-group">
                                 <label>Konto odbiorcy</label>
-                                <input type="text" class="form-control" id="to_acc" value="87654321" placeholder="8 cyfr">
+                                <input type="text" class="form-control" id="to_acc" value="12345678" placeholder="8 cyfr (numer konta u odbiorcy)">
                             </div>
                         </div>
                         <div class="form-group">
@@ -91,7 +91,15 @@
                         <tr><th>Waluta</th><td>GBP</td></tr>
                     </table>
                     <div class="alert alert-info" style="margin-top:1rem;">
-                        <strong>Konta testowe UKPS:</strong><br>20-00-00 (Barclays), 40-00-00 (HSBC), 30-00-00 (Lloyds), 60-00-00 (Alice Bank)
+                        <strong>Bank partnerski ({{ peer_bank.name if peer_bank else 'Alice Bank' }}):</strong><br>
+                        Sort code UKPS: <code>{{ peer_bank.ukps_sort_code if peer_bank else '60-00-00' }}</code> ·
+                        BIC: <code>{{ peer_bank.bic if peer_bank else 'SNDRUK22' }}</code><br>
+                        <small>Przelew trafia przez UKPS. Kolega musi mieć uruchomiony <code>ukps-listener</code> w swoim repo.</small>
+                    </div>
+                    <div class="alert alert-info" style="margin-top:0.75rem;">
+                        <strong>Inne banki UKPS (seed):</strong><br>
+                        20-00-00 Barclays · 40-00-00 HSBC · 30-00-00 Lloyds<br>
+                        <small>Sort code z myślnikami lub bez — oba formaty działają.</small>
                     </div>
                     <div class="alert alert-warning" style="margin-top:1rem;">
                         <strong>Uwaga:</strong> BACS to standardowy przelew międzybankowy. Środki są dostępne dla odbiorcy po 3 dniach roboczych. Jest to najpopularniejszy typ przelewu w UK do płatności niepilnych.

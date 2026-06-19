@@ -17,6 +17,7 @@
             <a href="/dashboard">Dashboard</a>
             <a href="/transfer/internal">Przelewy</a>
             <a href="/karta">Karty</a>
+            <a href="/klik">KLIK</a>
             <a href="/integracje" class="active">Integracje</a>
         </div>
         <div class="navbar-user">
@@ -30,7 +31,7 @@
         <div class="transfer-hero" style="background: linear-gradient(135deg, #0f766e 0%, #1a3a5c 100%);">
             <div class="hero-icon">🔌</div>
             <h2>Status integracji</h2>
-            <p>Połączenia UK Bank B z modułem kart płatniczych i siecią SWIFT</p>
+            <p>Połączenia UK Bank B z modułem kart, siecią SWIFT i UK Payment Systems</p>
             <div class="hero-limits">
                 <span id="hero-summary">Sprawdzam...</span>
             </div>
@@ -69,7 +70,9 @@
                 'Bank': '🏛️',
                 'Karty płatnicze': '💳',
                 'Sieć SWIFT': '🌍',
-                'UK Payment Schemes (UKPS)': '🇬🇧'
+                'UK Payment Schemes (UKPS)': '🇬🇧',
+                'Bank partnerski (UK Bank A)': '🏦',
+                'KLIK (płatności mobilne)': '📱'
             };
             let html = '';
             for (const [group, items] of Object.entries(groups)) {

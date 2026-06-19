@@ -46,7 +46,7 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Sort Code nadawcy</label>
-                                <input type="text" class="form-control" id="from_sort" value="102030" placeholder="6 cyfr">
+                                <input type="text" class="form-control" id="from_sort" value="10-20-30" placeholder="XX-XX-XX">
                             </div>
                             <div class="form-group">
                                 <label>Konto nadawcy</label>
@@ -56,11 +56,11 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Sort Code odbiorcy</label>
-                                <input type="text" class="form-control" id="to_sort" value="200000" placeholder="6 cyfr">
+                                <input type="text" class="form-control" id="to_sort" value="{{ peer_bank.ukps_sort_code if peer_bank else '60-00-00' }}" placeholder="XX-XX-XX">
                             </div>
                             <div class="form-group">
                                 <label>Konto odbiorcy</label>
-                                <input type="text" class="form-control" id="to_acc" value="55555555" placeholder="8 cyfr">
+                                <input type="text" class="form-control" id="to_acc" value="12345678" placeholder="8 cyfr">
                             </div>
                         </div>
                         <div class="form-group">
@@ -90,8 +90,17 @@
                         <tr><th>Opłaty</th><td>Zazwyczaj bezpłatny</td></tr>
                         <tr><th>Waluta</th><td>GBP</td></tr>
                     </table>
-                    <div class="alert alert-info" style="margin-top:1rem;">
-                        <strong>Konta testowe UKPS:</strong><br>20-00-00 (Barclays), 40-00-00 (HSBC), 30-00-00 (Lloyds), 60-00-00 (Alice Bank)
+                    <div class="alert alert-warning" style="margin-top:1rem;">
+                        <strong>Uwaga — dwa różne sort code:</strong><br>
+                        Konto Olafa w Lyo Bank ma <code>10-20-30</code>, ale w UKPS bank kolegi to
+                        <code>{{ peer_bank.ukps_sort_code if peer_bank else '60-00-00' }}</code>.<br>
+                        <strong>Wysyłaj na 60-00-00</strong>, nie na 10-20-30.
+                    </div>
+                    <div class="alert alert-info" style="margin-top:0.75rem;">
+                        <strong>Bank partnerski ({{ peer_bank.name if peer_bank else 'Alice Bank' }}):</strong><br>
+                        Sort UKPS: <code>{{ peer_bank.ukps_sort_code if peer_bank else '60-00-00' }}</code> ·
+                        BIC: <code>{{ peer_bank.bic if peer_bank else 'SNDRUK22' }}</code><br>
+                        <small>Nadawca: 10-20-30 / 11111111. Numer konta odbiorcy (01246624) musi być ustawiony jako UKPS_INBOUND_FALLBACK_ACCOUNT u kolegi.</small>
                     </div>
                     <div class="alert alert-info" style="margin-top:1rem;">
                         <strong>Gridlock Resolution:</strong> Jeśli konto nadawcy nie ma wystarczających środków, transakcja trafia do kolejki oczekujących (Gridlock). Bank ma 2 godziny na uzupełnienie kapitału, zamiast odrzucać transakcję.
