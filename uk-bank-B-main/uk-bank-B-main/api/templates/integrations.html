@@ -47,6 +47,16 @@
         </div>
 
         <div id="groups"></div>
+
+        <div class="card" style="margin-bottom:1.25rem;">
+            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                <h3>📨 Ostatnie przelewy SWIFT</h3>
+                <span id="swift-metrics" class="integ-badge integ-ok">—</span>
+            </div>
+            <div class="card-body" style="padding:0;">
+                <div id="swift-history"></div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -105,6 +115,61 @@
                 : `${s.ok}/${s.total} połączeń OK`;
         }
 
+        function statusBadge(status) {
+            const s = (status || '').toLowerCase();
+            let cls = 'integ-pending';
+            if (s === 'completed' || s === 'accepted' || s === 'sent') cls = 'integ-ok';
+            else if (s === 'failed' || s === 'cancelled' || s === 'rejected') cls = 'integ-fail';
+            return `<span class="integ-badge ${cls}">${status || '—'}</span>`;
+        }
+
+        function renderHistory(data) {
+            const m = data.metrics || {};
+            const metricsEl = document.getElementById('swift-metrics');
+            if (data.ok) {
+                metricsEl.className = 'integ-badge integ-ok';
+                metricsEl.textContent =
+                    `✓ ${m.completed || 0} zrealizowane · ${m.pending || 0} w kolejce · ${m.incoming || 0} przychodzące`;
+            } else {
+                metricsEl.className = 'integ-badge integ-fail';
+                metricsEl.textContent = '✕ Brak połączenia z panelem SWIFT';
+            }
+
+            const transfers = data.transfers || [];
+            const box = document.getElementById('swift-history');
+            if (!transfers.length) {
+                box.innerHTML =
+                    '<div style="padding:1rem; color:var(--text-light);">Brak przelewów SWIFT do wyświetlenia.</div>';
+                return;
+            }
+            let rows = '';
+            transfers.forEach(t => {
+                const dir = t.direction === 'incoming' ? '⬇ przychodzący' : '⬆ wychodzący';
+                rows += `<tr>
+                    <td><code>${(t.uetr || '').slice(0, 8)}…</code></td>
+                    <td>${dir}</td>
+                    <td class="integ-name">${t.route || ''}</td>
+                    <td>${t.amount || ''} ${t.currency || ''}</td>
+                    <td class="integ-status">${statusBadge(t.status)}</td>
+                </tr>`;
+            });
+            box.innerHTML = `<table class="integ-table">
+                <thead><tr>
+                    <th>UETR</th><th>Kierunek</th><th>Trasa</th><th>Kwota</th><th>Status</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+        }
+
+        async function loadHistory() {
+            try {
+                const r = await fetch('/api/swift/history?limit=10');
+                renderHistory(await r.json());
+            } catch (e) {
+                renderHistory({ ok: false, transfers: [], metrics: {} });
+            }
+        }
+
         async function loadStatus() {
             const btn = document.getElementById('refreshBtn');
             btn.disabled = true;
@@ -113,6 +178,7 @@
                 const r = await fetch('/api/integrations');
                 const data = await r.json();
                 render(data);
+                await loadHistory();
             } catch (e) {
                 document.getElementById('groups').innerHTML =
                     `<div class="alert alert-error">Nie udało się pobrać statusu: ${e.message}</div>`;

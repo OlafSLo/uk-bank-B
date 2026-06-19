@@ -1187,6 +1187,16 @@ def _school_ports() -> dict:
 def _bank_public_url(path: str = "") -> str:
     port = os.getenv("BANK_PUBLIC_PORT", os.getenv("BANK_PORT", "8010"))
     return f"http://localhost:{port}{path}"
+@app.get("/api/swift/history")
+def api_swift_history(limit: int = 10):
+    """Ostatnie przelewy SWIFT (UETR + status) zaciągnięte z panelu operatora."""
+    if not swift_client:
+        return {"ok": False, "status_code": 503, "metrics": {}, "transfers": []}
+    try:
+        return swift_client.recent_transfers(limit=limit)
+    except Exception as exc:
+        return {"ok": False, "status_code": 503, "error": str(exc),
+                "metrics": {}, "transfers": []}
 
 
 def _public_url(url: str) -> str:
