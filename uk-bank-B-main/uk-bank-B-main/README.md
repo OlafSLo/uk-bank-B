@@ -290,6 +290,7 @@ python scripts/test_card_e2e.py
 | Serwis | Adres | Opis |
 |--------|-------|------|
 | **UK Bank B (GUI)** | http://localhost:8010 | Logowanie, dashboard, przelewy |
+| **Integracja (status)** | http://localhost:8010/integracje | Status wszystkich systemów |
 | **Wyrabianie karty** | http://localhost:8010/karta | Wydanie karty + instrukcja POS |
 | **Strona demo** | http://localhost:8010/demo-karty | Status integracji + szybki test API |
 | **Terminal POS** | http://localhost:8072/pos | Płatność kartą (symulacja sklepu) |
@@ -793,7 +794,7 @@ python scripts/test_swift_e2e.py
 
 **Sposób 1 – strona „Integracje” w GUI (zalecany):**
 
-1. Zaloguj się i wejdź na **http://localhost:8000/integracje** (link **Integracje** w menu lub kafelek na Dashboardzie).
+1. Zaloguj się i wejdź na **http://localhost:8010/integracje** (link **Integracje** w menu lub kafelek na Dashboardzie).
 2. Strona sama odpytuje wszystkie usługi i pokazuje **kody HTTP** z zielonymi plakietkami.
 3. Gdy wszystko działa, u góry zobaczysz: **„✓ Wszystkie połączenia działają (8/8 · HTTP 200)”**:
 
@@ -806,14 +807,14 @@ python scripts/test_swift_e2e.py
    Strona ma auto-odświeżanie co 5 s oraz przyciski do panelu SWIFT i terminala POS.
 4. Na dole strony jest sekcja **„Ostatnie przelewy SWIFT”** – lista UETR, kierunek
    (⬆ wychodzący / ⬇ przychodzący), trasa, kwota i status (`completed` / `queued` /
-   `incoming`) zaciągana z panelu operatora. Surowe dane: `curl http://localhost:8000/api/swift/history`.
+   `incoming`) zaciągana z panelu operatora. Surowe dane: `curl http://localhost:8010/api/swift/history`.
 
 **Sposób 2 – endpoint JSON (CLI):**
 
 ```bash
-curl http://localhost:8000/api/integrations     # zwraca summary {ok, total, all_ok} + listę checków
-curl http://localhost:8000/api/swift/status      # status samej sieci SWIFT + token
-curl http://localhost:8000/api/swift/history     # ostatnie przelewy SWIFT (UETR + status)
+curl http://localhost:8010/api/integrations     # zwraca summary {ok, total, all_ok} + listę checków
+curl http://localhost:8010/api/swift/status      # status samej sieci SWIFT + token
+curl http://localhost:8010/api/swift/history     # ostatnie przelewy SWIFT (UETR + status)
 ```
 
 **Sposób 3 – test automatyczny E2E:**
